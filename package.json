@@ -10,19 +10,29 @@
     "dist": "electron-builder --win nsis"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0"
   },
   "build": {
     "appId": "com.kaypee.tasktrackingmonitor",
     "productName": "Task Tracking Monitor",
-    "files": ["main.js", "preload.js", "renderer/**/*"],
-    "win": { "target": "nsis", "signAndEditExecutable": false },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }
