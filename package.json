@@ -7,7 +7,8 @@
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis"
+    "dist": "electron-builder --win nsis",
+    "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -16,7 +17,7 @@
   "build": {
     "appId": "com.kaypee.tasktrackingmonitor",
     "productName": "Task Tracking Monitor",
-    "files": ["main.js", "preload.js", "renderer/**/*"],
+    "files": ["main.js", "preload.js", "renderer/**/*", "storage/**/*"],
     "win": { "target": "nsis", "signAndEditExecutable": false },
     "nsis": {
       "oneClick": false,
@@ -24,5 +25,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
   }
 }

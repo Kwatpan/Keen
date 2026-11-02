@@ -22,14 +22,16 @@ The app stores data locally on the machine in the user data directory, so it run
 - Optional project/tag metadata
 - Time tracking in minutes
 - Weekly overview with completion rate, daily progress, and project totals
-- Local JSON persistence for all saved data
+- Local SQLite database for all saved data
 - Desktop installer build for Windows using Electron
 
 ## Project structure
 
-- `main.js` — Electron app startup and local file persistence
+- `main.js` — Electron app startup, database setup, and one-time import of the old `tasks.json`
 - `preload.js` — exposes safe renderer-to-main APIs
 - `renderer/index.html` — app UI and logic
+- `storage/` — SQLite schema and migrations (`db.js`), legacy JSON import (`migrate-json.js`), IPC handlers (`ipc.js`)
+- `test/` — storage tests
 - `package.json` — project metadata and build scripts
 - `dist/` — generated Windows installer output after packaging
 
@@ -37,9 +39,9 @@ The app stores data locally on the machine in the user data directory, so it run
 
 On Windows, the app stores data in:
 
-`%APPDATA%\task-tracking-monitor\tasks.json`
+`%APPDATA%\task-tracking-monitor\tracker.db`
 
-This file contains the saved task list. If you want a backup, copy that file to a safe location before reinstalling or upgrading.
+This file contains all saved tasks and projects. To back it up, close the app and copy `tracker.db` (and any `tracker.db-wal` file beside it). Your old `tasks.json` is kept as `tasks.json.migrated` after the first launch.
 
 ## Development setup
 
@@ -95,7 +97,7 @@ Windows may show an "Unknown publisher" warning when installing the app because 
 ### Data is missing
 
 - Confirm the app is running under the same user account
-- Check `%APPDATA%\task-tracking-monitor\` for the `tasks.json` file
+- Check `%APPDATA%\task-tracking-monitor\` for the `tracker.db` file
 - If needed, restore a backup copy of that file
 
 ## License
@@ -106,7 +108,7 @@ This project currently has no public license declared in `package.json`.
 
 If you plan to extend the app, the main areas to review are:
 
-- task data structure and persistence in `main.js`
+- database schema and migrations in `storage/db.js`
 - UI logic and rendering flow in `renderer/index.html`
 - packaging configuration in `package.json`
 
