@@ -1,9 +1,12 @@
 const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const path = require('path');
-const fs = require('fs');
+const { openDb, createRepo } = require('./storage/db');
+const { importLegacyJson } = require('./storage/migrate-json');
+const { registerIpc } = require('./storage/ipc');
 
-const dataFile = () => path.join(app.getPath('userData'), 'tasks.json');
+const legacyFile = () => path.join(app.getPath('userData'), 'tasks.json');
 let win = null;
+let db = null;
 
 function createWindow() {
   win = new BrowserWindow({
@@ -20,25 +23,24 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
 
-ipcMain.handle('load', () => {
-  try { return JSON.parse(fs.readFileSync(dataFile(), 'utf8')); }
-  catch (e) { return {}; }
-});
-
-ipcMain.handle('save', (_e, data) => {
+function startStorage() {
+  db = openDb(app.getPath('userData'));
+  const repo = createRepo(db);
   try {
-    fs.mkdirSync(path.dirname(dataFile()), { recursive: true });
-    const tmp = dataFile() + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(data));
-    fs.renameSync(tmp, dataFile());
-    return true;
-  } catch (e) { return false; }
-});
+    const result = importLegacyJson(db, repo, legacyFile());
+    if (result.found) console.log('Imported legacy tasks.json:', result);
+  } catch (e) {
+    // The old file is left untouched if the import fails, so nothing is lost.
+    console.error('Legacy import failed:', e);
+  }
+  registerIpc(ipcMain, repo);
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-  app.whenReady().then(createWindow);
+  app.whenReady().then(() => { startStorage(); createWindow(); });
+  app.on('before-quit', () => { if (db) db.close(); });
   app.on('window-all-closed', () => app.quit());
 }
