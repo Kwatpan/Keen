@@ -1,0 +1,28 @@
+{
+  "name": "task-tracking-monitor",
+  "version": "0.1.0",
+  "description": "Personal workload tracker with daily tasks and weekly summaries",
+  "main": "main.js",
+  "author": "Kaypee",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.kaypee.tasktrackingmonitor",
+    "productName": "Task Tracking Monitor",
+    "files": ["main.js", "preload.js", "renderer/**/*"],
+    "win": { "target": "nsis", "signAndEditExecutable": false },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
