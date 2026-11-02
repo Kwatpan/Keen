@@ -1,0 +1,588 @@
+From 352ecb1b7d819b95dc201a2b5222334fc85092fe Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 2 Nov 2026 18:21:48 +0000
+Subject: [PATCH] Move storage from tasks.json to SQLite with one-time legacy
+ import
+
+---
+ README.md               |  14 +--
+ main.js                 |  34 +++----
+ package.json            |   9 +-
+ preload.js              |   5 +-
+ renderer/index.html     |   8 +-
+ storage/db.js           | 201 ++++++++++++++++++++++++++++++++++++++++
+ storage/ipc.js          |  55 +++++++++++
+ storage/migrate-json.js |  53 +++++++++++
+ test/storage.test.js    |  54 +++++++++++
+ 9 files changed, 402 insertions(+), 31 deletions(-)
+ create mode 100644 storage/db.js
+ create mode 100644 storage/ipc.js
+ create mode 100644 storage/migrate-json.js
+ create mode 100644 test/storage.test.js
+
+diff --git a/README.md b/README.md
+index a8aa955..d149608 100644
+--- a/README.md
++++ b/README.md
+@@ -22,14 +22,16 @@ The app stores data locally on the machine in the user data directory, so it run
+ - Optional project/tag metadata
+ - Time tracking in minutes
+ - Weekly overview with completion rate, daily progress, and project totals
+-- Local JSON persistence for all saved data
++- Local SQLite database for all saved data
+ - Desktop installer build for Windows using Electron
+ 
+ ## Project structure
+ 
+-- `main.js` — Electron app startup and local file persistence
++- `main.js` — Electron app startup, database setup, and one-time import of the old `tasks.json`
+ - `preload.js` — exposes safe renderer-to-main APIs
+ - `renderer/index.html` — app UI and logic
++- `storage/` — SQLite schema and migrations (`db.js`), legacy JSON import (`migrate-json.js`), IPC handlers (`ipc.js`)
++- `test/` — storage tests
+ - `package.json` — project metadata and build scripts
+ - `dist/` — generated Windows installer output after packaging
+ 
+@@ -37,9 +39,9 @@ The app stores data locally on the machine in the user data directory, so it run
+ 
+ On Windows, the app stores data in:
+ 
+-`%APPDATA%\task-tracking-monitor\tasks.json`
++`%APPDATA%\task-tracking-monitor\tracker.db`
+ 
+-This file contains the saved task list. If you want a backup, copy that file to a safe location before reinstalling or upgrading.
++This file contains all saved tasks and projects. To back it up, close the app and copy `tracker.db` (and any `tracker.db-wal` file beside it). Your old `tasks.json` is kept as `tasks.json.migrated` after the first launch.
+ 
+ ## Development setup
+ 
+@@ -95,7 +97,7 @@ Windows may show an "Unknown publisher" warning when installing the app because
+ ### Data is missing
+ 
+ - Confirm the app is running under the same user account
+-- Check `%APPDATA%\task-tracking-monitor\` for the `tasks.json` file
++- Check `%APPDATA%\task-tracking-monitor\` for the `tracker.db` file
+ - If needed, restore a backup copy of that file
+ 
+ ## License
+@@ -106,7 +108,7 @@ This project currently has no public license declared in `package.json`.
+ 
+ If you plan to extend the app, the main areas to review are:
+ 
+-- task data structure and persistence in `main.js`
++- database schema and migrations in `storage/db.js`
+ - UI logic and rendering flow in `renderer/index.html`
+ - packaging configuration in `package.json`
+ 
+diff --git a/main.js b/main.js
+index 1f92c5b..09cfb2b 100644
+--- a/main.js
++++ b/main.js
+@@ -1,9 +1,12 @@
+ const { app, BrowserWindow, ipcMain, Menu } = require('electron');
+ const path = require('path');
+-const fs = require('fs');
++const { openDb, createRepo } = require('./storage/db');
++const { importLegacyJson } = require('./storage/migrate-json');
++const { registerIpc } = require('./storage/ipc');
+ 
+-const dataFile = () => path.join(app.getPath('userData'), 'tasks.json');
++const legacyFile = () => path.join(app.getPath('userData'), 'tasks.json');
+ let win = null;
++let db = null;
+ 
+ function createWindow() {
+   win = new BrowserWindow({
+@@ -20,25 +23,24 @@ function createWindow() {
+   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+ }
+ 
+-ipcMain.handle('load', () => {
+-  try { return JSON.parse(fs.readFileSync(dataFile(), 'utf8')); }
+-  catch (e) { return {}; }
+-});
+-
+-ipcMain.handle('save', (_e, data) => {
++function startStorage() {
++  db = openDb(app.getPath('userData'));
++  const repo = createRepo(db);
+   try {
+-    fs.mkdirSync(path.dirname(dataFile()), { recursive: true });
+-    const tmp = dataFile() + '.tmp';
+-    fs.writeFileSync(tmp, JSON.stringify(data));
+-    fs.renameSync(tmp, dataFile());
+-    return true;
+-  } catch (e) { return false; }
+-});
++    const result = importLegacyJson(db, repo, legacyFile());
++    if (result.found) console.log('Imported legacy tasks.json:', result);
++  } catch (e) {
++    // The old file is left untouched if the import fails, so nothing is lost.
++    console.error('Legacy import failed:', e);
++  }
++  registerIpc(ipcMain, repo);
++}
+ 
+ if (!app.requestSingleInstanceLock()) {
+   app.quit();
+ } else {
+   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+-  app.whenReady().then(createWindow);
++  app.whenReady().then(() => { startStorage(); createWindow(); });
++  app.on('before-quit', () => { if (db) db.close(); });
+   app.on('window-all-closed', () => app.quit());
+ }
+diff --git a/package.json b/package.json
+index 04905d4..2355718 100644
+--- a/package.json
++++ b/package.json
+@@ -7,7 +7,8 @@
+   "license": "UNLICENSED",
+   "scripts": {
+     "start": "electron .",
+-    "dist": "electron-builder --win nsis"
++    "dist": "electron-builder --win nsis",
++    "postinstall": "electron-builder install-app-deps"
+   },
+   "devDependencies": {
+     "electron": "^45.2.1",
+@@ -19,7 +20,8 @@
+     "files": [
+       "main.js",
+       "preload.js",
+-      "renderer/**/*"
++      "renderer/**/*",
++      "storage/**/*"
+     ],
+     "win": {
+       "target": "nsis",
+@@ -33,6 +35,7 @@
+     }
+   },
+   "dependencies": {
+-    "electron-updater": "^6.8.11"
++    "electron-updater": "^6.8.11",
++    "better-sqlite3": "^13.0.3"
+   }
+ }
+diff --git a/preload.js b/preload.js
+index e8ad561..106e11d 100644
+--- a/preload.js
++++ b/preload.js
+@@ -1,5 +1,6 @@
+ const { contextBridge, ipcRenderer } = require('electron');
+ contextBridge.exposeInMainWorld('ttm', {
+-  load: () => ipcRenderer.invoke('load'),
+-  save: (data) => ipcRenderer.invoke('save', data)
++  load: () => ipcRenderer.invoke('tasks:load'),
++  saveTask: (task) => ipcRenderer.invoke('tasks:save', task),
++  removeTask: (id) => ipcRenderer.invoke('tasks:remove', id)
+ });
+diff --git a/renderer/index.html b/renderer/index.html
+index 3ca977c..aa054e4 100644
+--- a/renderer/index.html
++++ b/renderer/index.html
+@@ -73,10 +73,10 @@ function fmt(d,o){return d.toLocaleDateString(undefined,o);}
+ function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+ function hrs(m){if(!m)return '0h';var h=Math.floor(m/60),r=m%60;return (h?h+'h ':'')+(r?r+'m':'')||'0h';}
+ 
+-/* storage: JSON file on this computer via the Electron main process */
+-function persist(){window.ttm.save(tasks);}
+-function save(t){tasks[t.id]=t;persist();render();}
+-function remove(id){delete tasks[id];persist();render();}
++/* storage: SQLite database on this computer via the Electron main process */
++function failed(){document.getElementById('sync').textContent='Could not save. Try again.';}
++function save(t){window.ttm.saveTask(t).then(function(row){if(String(t.id)!==row.id)delete tasks[t.id];tasks[row.id]=row;render();}).catch(failed);}
++function remove(id){window.ttm.removeTask(id).then(function(){delete tasks[id];render();}).catch(failed);}
+ 
+ function dayTasks(k){return Object.values(tasks).filter(function(t){return t.date===k;}).sort(function(a,b){return a.created-b.created;});}
+ 
+diff --git a/storage/db.js b/storage/db.js
+new file mode 100644
+index 0000000..1eef080
+--- /dev/null
++++ b/storage/db.js
+@@ -0,0 +1,201 @@
++'use strict';
++const fs = require('fs');
++const path = require('path');
++const Database = require('better-sqlite3');
++
++// Each entry is one schema version. Append new entries; never edit old ones.
++// PRAGMA user_version tracks how many have been applied.
++const MIGRATIONS = [
++  `
++  CREATE TABLE projects (
++    id          INTEGER PRIMARY KEY,
++    name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
++    color       TEXT,
++    archived    INTEGER NOT NULL DEFAULT 0,
++    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
++  );
++
++  CREATE TABLE tasks (
++    id            INTEGER PRIMARY KEY,
++    title         TEXT NOT NULL,
++    project_id    INTEGER REFERENCES projects(id) ON DELETE SET NULL,
++    task_date     TEXT NOT NULL,                       -- local day, YYYY-MM-DD
++    status        TEXT NOT NULL DEFAULT 'todo'
++                  CHECK (status IN ('todo','doing','done','blocked')),
++    progress      INTEGER NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
++    estimate_min  INTEGER,
++    actual_min    INTEGER NOT NULL DEFAULT 0,
++    notes         TEXT,
++    sort_order    INTEGER NOT NULL DEFAULT 0,
++    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
++    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
++    completed_at  TEXT,
++    deleted_at    TEXT                                  -- soft delete, enables undo
++  );
++  CREATE INDEX idx_tasks_date         ON tasks(task_date);
++  CREATE INDEX idx_tasks_project_date ON tasks(project_id, task_date);
++
++  CREATE TABLE time_entries (
++    id          INTEGER PRIMARY KEY,
++    task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
++    started_at  TEXT NOT NULL,
++    ended_at    TEXT,
++    minutes     INTEGER NOT NULL DEFAULT 0
++  );
++  CREATE INDEX idx_time_entries_task ON time_entries(task_id);
++  `,
++];
++
++function migrate(db, file) {
++  const current = db.pragma('user_version', { simple: true });
++  if (current >= MIGRATIONS.length) return;
++  if (current > 0 && fs.existsSync(file)) {
++    db.pragma('wal_checkpoint(TRUNCATE)');
++    fs.copyFileSync(file, `${file}.pre-v${current}.bak`);
++  }
++  for (let v = current; v < MIGRATIONS.length; v++) {
++    db.transaction(() => {
++      db.exec(MIGRATIONS[v]);
++      db.pragma(`user_version = ${v + 1}`);
++    })();
++  }
++}
++
++function openDb(dir) {
++  fs.mkdirSync(dir, { recursive: true });
++  const file = path.join(dir, 'tracker.db');
++  const db = new Database(file);
++  db.pragma('journal_mode = WAL');
++  db.pragma('foreign_keys = ON');
++  migrate(db, file);
++  return db;
++}
++
++// "90", "45m", "1h", "1.5h", "1h30" -> minutes
++function parseMinutes(input) {
++  if (input == null || input === '') return 0;
++  if (typeof input === 'number') return Math.max(0, Math.round(input));
++  const s = String(input).trim().toLowerCase();
++  let m = s.match(/^(\d+(?:\.\d+)?)\s*h(?:ours?|rs?)?\s*(?:(\d+)\s*m?(?:in)?)?$/);
++  if (m) return Math.round(parseFloat(m[1]) * 60 + (m[2] ? parseInt(m[2], 10) : 0));
++  m = s.match(/^(\d+)\s*m(?:in(?:s|utes)?)?$/);
++  if (m) return parseInt(m[1], 10);
++  if (/^\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s));
++  return 0;
++}
++
++const UPDATABLE = ['title', 'status', 'progress', 'estimate_min', 'actual_min', 'notes', 'task_date', 'sort_order'];
++
++function createRepo(db) {
++  const upsertProject = db.prepare(
++    `INSERT INTO projects(name) VALUES (?)
++     ON CONFLICT(name) DO UPDATE SET archived = archived
++     RETURNING id`
++  );
++  const projectId = (name) => (name && String(name).trim() ? upsertProject.get(String(name).trim()).id : null);
++
++  const selectTask = db.prepare(
++    `SELECT t.*, p.name AS project FROM tasks t
++     LEFT JOIN projects p ON p.id = t.project_id WHERE t.id = ?`
++  );
++  const insertTask = db.prepare(
++    `INSERT INTO tasks (title, project_id, task_date, status, progress, estimate_min, actual_min, notes, sort_order, created_at, completed_at)
++     VALUES (@title, @project_id, @task_date, @status, @progress, @estimate_min, @actual_min, @notes,
++             (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tasks WHERE task_date = @task_date),
++             COALESCE(@created_at, datetime('now')),
++             CASE WHEN @status = 'done' THEN COALESCE(@created_at, datetime('now')) END)`
++  );
++
++  const getTask = (id) => selectTask.get(id);
++
++  function addTask(input) {
++    const title = String(input.title || '').trim();
++    if (!title) throw new Error('Task title is required');
++    const status = input.status || 'todo';
++    const info = insertTask.run({
++      title,
++      project_id: projectId(input.project),
++      task_date: input.task_date,
++      status,
++      progress: status === 'done' ? 100 : input.progress || 0,
++      estimate_min: input.estimate_min ?? null,
++      actual_min: parseMinutes(input.minutes ?? input.actual_min),
++      notes: input.notes ?? null,
++      created_at: input.created_at ?? null,
++    });
++    return getTask(info.lastInsertRowid);
++  }
++
++  function updateTask(id, patch) {
++    const sets = [];
++    const params = { id };
++    for (const f of UPDATABLE) {
++      if (f in patch) { sets.push(`${f} = @${f}`); params[f] = patch[f]; }
++    }
++    if ('project' in patch) { sets.push('project_id = @project_id'); params.project_id = projectId(patch.project); }
++    if (patch.status) {
++      sets.push(`completed_at = CASE WHEN @status = 'done' THEN COALESCE(completed_at, datetime('now')) ELSE NULL END`);
++      if (patch.status === 'done' && !('progress' in patch)) { sets.push('progress = 100'); }
++    }
++    if (!sets.length) return getTask(id);
++    sets.push(`updated_at = datetime('now')`);
++    db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = @id`).run(params);
++    return getTask(id);
++  }
++
++  const listTasksByDate = db.prepare(
++    `SELECT t.*, p.name AS project FROM tasks t
++     LEFT JOIN projects p ON p.id = t.project_id
++     WHERE t.task_date = ? AND t.deleted_at IS NULL ORDER BY t.sort_order, t.id`
++  );
++  const listAllTasks = db.prepare(
++    `SELECT t.*, p.name AS project FROM tasks t
++     LEFT JOIN projects p ON p.id = t.project_id
++     WHERE t.deleted_at IS NULL ORDER BY t.task_date, t.sort_order, t.id`
++  );
++  const softDelete = db.prepare(`UPDATE tasks SET deleted_at = datetime('now') WHERE id = ?`);
++  const undelete = db.prepare(`UPDATE tasks SET deleted_at = NULL WHERE id = ?`);
++
++  // Analytics. All take inclusive YYYY-MM-DD bounds.
++  const weekSummary = db.prepare(
++    `SELECT COALESCE(p.name, 'No project') AS project,
++            COUNT(*) AS tasks,
++            SUM(t.status = 'done') AS done,
++            SUM(t.actual_min) AS minutes
++     FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
++     WHERE t.task_date BETWEEN ? AND ? AND t.deleted_at IS NULL
++     GROUP BY p.id ORDER BY minutes DESC`
++  );
++  const dailyTotals = db.prepare(
++    `SELECT task_date AS day, COUNT(*) AS tasks, SUM(status = 'done') AS done, SUM(actual_min) AS minutes
++     FROM tasks WHERE task_date BETWEEN ? AND ? AND deleted_at IS NULL
++     GROUP BY task_date ORDER BY task_date`
++  );
++  const monthlyTrend = db.prepare(
++    `SELECT strftime('%Y-%m', task_date) AS month, COUNT(*) AS tasks, SUM(status = 'done') AS done, SUM(actual_min) AS minutes
++     FROM tasks WHERE task_date BETWEEN ? AND ? AND deleted_at IS NULL
++     GROUP BY month ORDER BY month`
++  );
++  const projectProgress = db.prepare(
++    `SELECT p.id, p.name, COUNT(t.id) AS tasks, COALESCE(SUM(t.status = 'done'), 0) AS done,
++            COALESCE(ROUND(AVG(t.progress)), 0) AS progress, COALESCE(SUM(t.actual_min), 0) AS minutes
++     FROM projects p LEFT JOIN tasks t ON t.project_id = p.id AND t.deleted_at IS NULL
++     WHERE p.archived = 0 GROUP BY p.id ORDER BY p.name`
++  );
++
++  return {
++    addTask,
++    updateTask,
++    getTask,
++    listTasksByDate: (date) => listTasksByDate.all(date),
++    listAllTasks: () => listAllTasks.all(),
++    deleteTask: (id) => { softDelete.run(id); return { id }; },
++    undoDelete: (id) => { undelete.run(id); return getTask(id); },
++    listProjects: () => projectProgress.all(),
++    weekSummary: (from, to) => weekSummary.all(from, to),
++    dailyTotals: (from, to) => dailyTotals.all(from, to),
++    monthlyTrend: (from, to) => monthlyTrend.all(from, to),
++  };
++}
++
++module.exports = { openDb, createRepo, parseMinutes, MIGRATIONS };
+diff --git a/storage/ipc.js b/storage/ipc.js
+new file mode 100644
+index 0000000..d5bdd66
+--- /dev/null
++++ b/storage/ipc.js
+@@ -0,0 +1,55 @@
++'use strict';
++const { parseMinutes } = require('./db');
++
++const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
++
++// Maps a database row to the shape the current renderer already uses.
++function toView(row) {
++  return {
++    id: String(row.id),
++    date: row.task_date,
++    title: row.title,
++    tag: row.project || '',
++    mins: row.actual_min,
++    status: row.status,
++    created: Date.parse(row.created_at.replace(' ', 'T') + 'Z'),
++  };
++}
++
++function registerIpc(ipcMain, repo) {
++  ipcMain.handle('tasks:load', () => {
++    const out = {};
++    for (const row of repo.listAllTasks()) out[row.id] = toView(row);
++    return out;
++  });
++
++  // Creates when the id is not a database id yet (the renderer invents "t…" ids), otherwise updates.
++  ipcMain.handle('tasks:save', (_event, t) => {
++    if (!t || typeof t.title !== 'string' || !t.title.trim()) throw new Error('Task title is required');
++    if (!DATE_RE.test(String(t.date))) throw new Error('Invalid task date');
++    const id = String(t.id);
++    if (/^\d+$/.test(id) && repo.getTask(Number(id))) {
++      return toView(repo.updateTask(Number(id), {
++        title: t.title.trim(),
++        project: t.tag || null,
++        actual_min: parseMinutes(t.mins),
++        status: t.status,
++        task_date: t.date,
++      }));
++    }
++    return toView(repo.addTask({
++      title: t.title,
++      project: t.tag,
++      minutes: t.mins,
++      status: t.status,
++      task_date: t.date,
++    }));
++  });
++
++  ipcMain.handle('tasks:remove', (_event, id) => {
++    repo.deleteTask(Number(id));
++    return true;
++  });
++}
++
++module.exports = { registerIpc, toView };
+diff --git a/storage/migrate-json.js b/storage/migrate-json.js
+new file mode 100644
+index 0000000..bd40662
+--- /dev/null
++++ b/storage/migrate-json.js
+@@ -0,0 +1,53 @@
++'use strict';
++const fs = require('fs');
++
++const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
++const STATUSES = new Set(['todo', 'doing', 'done', 'blocked']);
++
++// Keen's tasks.json is an object keyed by task id:
++//   { "t1abc": { id, date: "2026-11-02", title, tag, mins, status, created: 1730000000000 }, ... }
++// Arrays and { tasks: [...] } are also accepted.
++function flatten(raw) {
++  if (Array.isArray(raw)) return raw;
++  if (raw && Array.isArray(raw.tasks)) return raw.tasks;
++  if (raw && typeof raw === 'object') return Object.values(raw).filter((v) => v && typeof v === 'object');
++  return [];
++}
++
++function toSqlTime(ms) {
++  return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 19).replace('T', ' ') : null;
++}
++
++function normalise(t) {
++  const title = typeof t.title === 'string' ? t.title.trim() : '';
++  const date = typeof t.date === 'string' && DATE_RE.test(t.date) ? t.date : null;
++  if (!title || !date) return null;
++  const status = STATUSES.has(t.status) ? t.status : 'todo';
++  return {
++    title,
++    task_date: date,
++    project: t.tag || null,
++    minutes: Number(t.mins) || 0,
++    status,
++    created: Number(t.created) || 0,
++    created_at: toSqlTime(Number(t.created)),
++  };
++}
++
++// Returns { found, imported, skipped }. The source file is renamed, never deleted.
++function importLegacyJson(db, repo, jsonPath) {
++  if (!fs.existsSync(jsonPath)) return { found: false, imported: 0, skipped: 0 };
++  const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
++  const rows = flatten(raw).map(normalise);
++  const good = rows.filter(Boolean).sort((a, b) => a.created - b.created);
++  const skipped = rows.length - good.length;
++
++  db.transaction(() => {
++    for (const r of good) repo.addTask(r);
++  })();
++
++  fs.renameSync(jsonPath, `${jsonPath}.migrated`);
++  return { found: true, imported: good.length, skipped };
++}
++
++module.exports = { importLegacyJson };
+diff --git a/test/storage.test.js b/test/storage.test.js
+new file mode 100644
+index 0000000..285ea91
+--- /dev/null
++++ b/test/storage.test.js
+@@ -0,0 +1,54 @@
++// Run with Electron's Node so the native module matches (see README):
++//   PowerShell: $env:ELECTRON_RUN_AS_NODE=1; npx electron test\storage.test.js
++const fs = require('fs');
++const os = require('os');
++const path = require('path');
++const assert = require('assert');
++const { openDb, createRepo, parseMinutes } = require('../storage/db');
++const { importLegacyJson } = require('../storage/migrate-json');
++const { registerIpc } = require('../storage/ipc');
++
++const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ttm-'));
++const db = openDb(dir);
++const repo = createRepo(db);
++
++// schema + parser
++assert.strictEqual(db.pragma('user_version', { simple: true }), 1);
++[['90', 90], ['45m', 45], ['1h', 60], ['1.5h', 90], ['1h30', 90], ['', 0]].forEach(([s, m]) => assert.strictEqual(parseMinutes(s), m));
++
++// legacy import in the exact shape the old renderer wrote
++const t0 = Date.UTC(2026, 10, 2, 9, 0, 0);
++const legacy = path.join(dir, 'tasks.json');
++fs.writeFileSync(legacy, JSON.stringify({
++  tb: { id: 'tb', date: '2026-11-02', title: 'Second', tag: 'Alpha', mins: 30, status: 'blocked', created: t0 + 5000 },
++  ta: { id: 'ta', date: '2026-11-02', title: 'First', tag: 'alpha', mins: 45, status: 'done', created: t0 },
++  tc: { id: 'tc', date: '2026-11-03', title: 'No tag', tag: '', mins: 0, status: 'todo', created: t0 + 9000 },
++  bad: { id: 'bad', date: 'nope', title: 'Broken date', tag: '', mins: 0, status: 'todo', created: t0 },
++}));
++const r = importLegacyJson(db, repo, legacy);
++assert.deepStrictEqual([r.found, r.imported, r.skipped], [true, 3, 1]);
++assert.ok(fs.existsSync(legacy + '.migrated') && !fs.existsSync(legacy));
++assert.strictEqual(importLegacyJson(db, repo, legacy).found, false, 'second run is a no-op');
++
++// IPC handlers behave like the old load/save from the renderer's point of view
++const handlers = {};
++registerIpc({ handle: (ch, fn) => { handlers[ch] = fn; } }, repo);
++const all = handlers['tasks:load']();
++const list = Object.values(all);
++assert.strictEqual(list.length, 3);
++const first = list.find((t) => t.title === 'First');
++assert.deepStrictEqual([first.tag, first.mins, first.status, first.date], ['alpha', 45, 'done', '2026-11-02']);
++assert.strictEqual(list.filter((t) => t.tag === 'alpha').length, 2, 'project names match case-insensitively');
++assert.ok(first.created === t0, 'original created time preserved');
++
++const added = handlers['tasks:save'](null, { id: 'tnew123', date: '2026-11-04', title: ' New one ', tag: 'Beta', mins: 20, status: 'todo' });
++assert.ok(/^\d+$/.test(added.id) && added.title === 'New one');
++const toggled = handlers['tasks:save'](null, { ...added, status: 'done' });
++assert.strictEqual(toggled.id, added.id); assert.strictEqual(toggled.status, 'done');
++handlers['tasks:remove'](null, added.id);
++assert.strictEqual(Object.keys(handlers['tasks:load']()).length, 3);
++assert.throws(() => handlers['tasks:save'](null, { id: 'x', date: 'bad', title: 'x', status: 'todo' }));
++
++console.log(repo.monthlyTrend('2026-01-01', '2026-12-31'));
++db.close();
++console.log('ALL PASSED');
+-- 
+2.43.0
+
