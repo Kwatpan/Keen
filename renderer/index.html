@@ -73,10 +73,10 @@ function fmt(d,o){return d.toLocaleDateString(undefined,o);}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function hrs(m){if(!m)return '0h';var h=Math.floor(m/60),r=m%60;return (h?h+'h ':'')+(r?r+'m':'')||'0h';}
 
-/* storage: JSON file on this computer via the Electron main process */
-function persist(){window.ttm.save(tasks);}
-function save(t){tasks[t.id]=t;persist();render();}
-function remove(id){delete tasks[id];persist();render();}
+/* storage: SQLite database on this computer via the Electron main process */
+function failed(){document.getElementById('sync').textContent='Could not save. Try again.';}
+function save(t){window.ttm.saveTask(t).then(function(row){if(String(t.id)!==row.id)delete tasks[t.id];tasks[row.id]=row;render();}).catch(failed);}
+function remove(id){window.ttm.removeTask(id).then(function(){delete tasks[id];render();}).catch(failed);}
 
 function dayTasks(k){return Object.values(tasks).filter(function(t){return t.date===k;}).sort(function(a,b){return a.created-b.created;});}
 
