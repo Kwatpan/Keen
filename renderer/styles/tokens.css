@@ -1,0 +1,80 @@
+:root {
+  color-scheme: light;
+  --background: #F4F6F9;
+  --surface: #FFFFFF;
+  --surface-muted: #EAEFF5;
+  --border: #D5DDE7;
+  --ink: #1E2A38;
+  --muted: #5B6B7E;
+  --accent: #3B6EA8;
+  --accent-hover: #315C8D;
+  --accent-tint: #E3ECF6;
+  --status-todo: #64748B;
+  --status-doing: #3B6EA8;
+  --status-done: #3F8F7B;
+  --status-blocked: #B7791F;
+  --chart-1: #3B6EA8;
+  --chart-2: #D08A3C;
+  --chart-3: #3F8F7B;
+  --chart-4: #A0577A;
+  --chart-5: #7A6CC4;
+  --chart-6: #8A9A5B;
+  --shadow: 0 14px 36px rgb(30 42 56 / 8%);
+  --focus-ring: 0 0 0 3px rgb(59 110 168 / 34%);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --motion-fast: 140ms;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #121820;
+  --surface: #1A222D;
+  --surface-muted: #232D3A;
+  --border: #2F3B4A;
+  --ink: #E6ECF3;
+  --muted: #9AA8B9;
+  --accent: #7FA8DB;
+  --accent-hover: #9ABBE5;
+  --accent-tint: #1E3047;
+  --status-todo: #9AA8B9;
+  --status-doing: #7FA8DB;
+  --status-done: #74B9A5;
+  --status-blocked: #E2AE62;
+  --chart-1: #7FA8DB;
+  --chart-2: #E2AE62;
+  --chart-3: #74B9A5;
+  --chart-4: #D28AA8;
+  --chart-5: #A89DE2;
+  --chart-6: #B4C480;
+  --shadow: 0 14px 36px rgb(0 0 0 / 24%);
+  --focus-ring: 0 0 0 3px rgb(127 168 219 / 42%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+    --background: #121820;
+    --surface: #1A222D;
+    --surface-muted: #232D3A;
+    --border: #2F3B4A;
+    --ink: #E6ECF3;
+    --muted: #9AA8B9;
+    --accent: #7FA8DB;
+    --accent-hover: #9ABBE5;
+    --accent-tint: #1E3047;
+    --status-todo: #9AA8B9;
+    --status-doing: #7FA8DB;
+    --status-done: #74B9A5;
+    --status-blocked: #E2AE62;
+    --chart-1: #7FA8DB;
+    --chart-2: #E2AE62;
+    --chart-3: #74B9A5;
+    --chart-4: #D28AA8;
+    --chart-5: #A89DE2;
+    --chart-6: #B4C480;
+    --shadow: 0 14px 36px rgb(0 0 0 / 24%);
+    --focus-ring: 0 0 0 3px rgb(127 168 219 / 42%);
+  }
+}
