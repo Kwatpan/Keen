@@ -1,173 +1,85 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Task Tracking Monitor</title>
-<style>
-:root{--bg:#f7f6f2;--card:#fff;--ink:#1d1d1b;--mute:#6b6a64;--line:#e4e2da;--acc:#1f6f5c;--accbg:#e1f0ec;--warn:#b4531a;--warnbg:#f8e9dd;--done:#8a8980;
-box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--card:#212120;--ink:#ecebe5;--mute:#9a998f;--line:#333330;--acc:#56c2a6;--accbg:#1e3a33;--warn:#e8925a;--warnbg:#3b2a1d;--done:#77766d;color-scheme:dark}}
-html{scroll-padding-top:env(safe-area-inset-top,0px)}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main{max-width:640px;margin:0 auto;padding:16px 16px 80px}
-h1{font-size:20px;margin:4px 0 12px}
-.tabs{display:flex;gap:6px;background:var(--line);padding:4px;border-radius:12px;margin-bottom:14px}
-.tabs button{flex:1;border:0;background:none;color:var(--mute);padding:9px;border-radius:9px;font:inherit;font-weight:600;cursor:pointer}
-.tabs button.on{background:var(--card);color:var(--ink)}
-.nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.nav button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:8px 14px;font:inherit;cursor:pointer}
-.nav .t{font-weight:600;text-align:center}
-.nav .t small{display:block;color:var(--mute);font-weight:400;font-size:13px}
-.add{display:flex;gap:8px;margin-bottom:8px}
-input,select,textarea{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
-.add input[name=title]{flex:1}
-.btn{background:var(--acc);color:#fff;border:0;border-radius:10px;padding:10px 16px;font:inherit;font-weight:600;cursor:pointer}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn{color:#0d1f1a}}
-.row2{display:flex;gap:8px;margin-bottom:16px}
-.row2 input{flex:1}.row2 input[name=mins]{max-width:110px}
-.task{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start}
-.chk{width:24px;height:24px;border-radius:50%;border:2px solid var(--mute);background:none;flex:none;margin-top:1px;cursor:pointer;color:#fff;font-size:14px;line-height:1;padding:0}
-.task.done .chk{background:var(--acc);border-color:var(--acc)}
-.task.blocked .chk{border-color:var(--warn)}
-.body{flex:1;min-width:0}
-.ttl{word-break:break-word}
-.task.done .ttl{color:var(--done);text-decoration:line-through}
-.meta{font-size:13px;color:var(--mute);margin-top:2px}
-.pill{display:inline-block;font-size:12px;padding:1px 8px;border-radius:99px;background:var(--accbg);color:var(--acc);margin-right:6px}
-.pill.w{background:var(--warnbg);color:var(--warn)}
-.x{border:0;background:none;color:var(--mute);cursor:pointer;font-size:13px;padding:2px 4px}
-.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
-.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
-.stat b{display:block;font-size:22px}.stat span{font-size:12px;color:var(--mute)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
-.card h2{font-size:14px;margin:0 0 8px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
-.bar{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:14px}
-.bar .d{width:36px;color:var(--mute)}
-.bar .tr{flex:1;height:10px;background:var(--line);border-radius:6px;overflow:hidden}
-.bar .fl{height:100%;background:var(--acc)}
-.bar .n{width:52px;text-align:right;color:var(--mute);font-size:13px}
-pre{white-space:pre-wrap;word-break:break-word;font:14px/1.5 ui-monospace,Menlo,Consolas,monospace;margin:0 0 10px}
-.empty{color:var(--mute);text-align:center;padding:24px 0}
-.sync{font-size:12px;color:var(--mute);text-align:center;margin-top:18px}
-</style>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Keen</title>
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/layout.css">
+  <link rel="stylesheet" href="styles/components.css">
+  <script type="module" src="app.js"></script>
 </head>
 <body>
-<main>
-  <h1>Task Tracking Monitor</h1>
-  <div class="tabs"><button id="tDay" class="on">Day</button><button id="tWeek">Week summary</button></div>
-  <div class="nav"><button id="prev" aria-label="Previous">‹</button><div class="t" id="label"></div><button id="next" aria-label="Next">›</button></div>
-  <div id="view"></div>
-  <div class="sync" id="sync"></div>
-</main>
-<script>
-(function(){
-var tasks={}, mode='day', cur=new Date(), store=null, uid=null;
-function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
-function parse(s){var p=s.split('-');return new Date(+p[0],+p[1]-1,+p[2]);}
-function monday(d){var x=new Date(d.getFullYear(),d.getMonth(),d.getDate());x.setDate(x.getDate()-((x.getDay()+6)%7));return x;}
-function addDays(d,n){var x=new Date(d);x.setDate(x.getDate()+n);return x;}
-function fmt(d,o){return d.toLocaleDateString(undefined,o);}
-function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
-function hrs(m){if(!m)return '0h';var h=Math.floor(m/60),r=m%60;return (h?h+'h ':'')+(r?r+'m':'')||'0h';}
+  <div class="shell" id="shell">
+    <aside class="sidebar" aria-label="Main navigation">
+      <a class="brand" href="#" aria-label="Keen home" data-view="today">
+        <span class="brand-mark" aria-hidden="true">K</span>
+        <span class="brand-name">Keen</span>
+      </a>
+      <nav class="side-nav" aria-label="Main">
+        <button class="nav-item" type="button" data-view="today" aria-label="Today" title="Today">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"></rect><path d="M7.5 3.5v3M16.5 3.5v3M3.5 9.5h17M8 13h3M8 16h6"></path></svg>
+          <span class="nav-label">Today</span>
+        </button>
+        <button class="nav-item" type="button" data-view="week" aria-label="Week" title="Week">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"></path></svg>
+          <span class="nav-label">Week</span>
+        </button>
+        <button class="nav-item" type="button" data-view="projects" aria-label="Projects" title="Projects">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5h7l2 2h8v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"></path><path d="M3.5 7.5v-2a2 2 0 0 1 2-2h4l2 2"></path></svg>
+          <span class="nav-label">Projects</span>
+        </button>
+        <button class="nav-item" type="button" data-view="dashboard" aria-label="Dashboard" title="Dashboard">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"></rect><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"></rect><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"></rect><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"></rect></svg>
+          <span class="nav-label">Dashboard</span>
+        </button>
+      </nav>
+      <div class="sidebar-bottom">
+        <button class="nav-item" type="button" data-view="settings" aria-label="Settings" title="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"></path><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3 .9v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3-.9l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1a1.8 1.8 0 0 0-.9-3h-.2a1.8 1.8 0 0 1 0-3.6h.2a1.8 1.8 0 0 0 .9-3l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 3-.9v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3 .9l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 .9 3h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0-.9 3Z"></path></svg>
+          <span class="nav-label">Settings</span>
+        </button>
+        <p class="sidebar-caption">A little more focus, every day.</p>
+      </div>
+    </aside>
 
-/* storage: SQLite database on this computer via the Electron main process */
-function failed(){document.getElementById('sync').textContent='Could not save. Try again.';}
-function save(t){window.ttm.saveTask(t).then(function(row){if(String(t.id)!==row.id)delete tasks[t.id];tasks[row.id]=row;render();}).catch(failed);}
-function remove(id){window.ttm.removeTask(id).then(function(){delete tasks[id];render();}).catch(failed);}
+    <main class="content-area">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">YOUR WORKSPACE</p>
+          <h1 id="page-title">Today</h1>
+          <p class="page-subtitle" id="page-subtitle"></p>
+        </div>
+        <div class="header-actions">
+          <button class="button button-secondary mobile-week" type="button" data-view="week">Week summary</button>
+          <button class="icon-button mobile-settings" type="button" data-view="settings" aria-label="Open settings" title="Settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"></path><path d="M19.2 14.8a1.7 1.7 0 0 0 .8-1.4 1.7 1.7 0 0 0-.8-1.4 1.7 1.7 0 0 1-.7-2 1.7 1.7 0 0 0-.6-1.9 1.7 1.7 0 0 0-2-.1 1.7 1.7 0 0 1-2.1-.4 1.7 1.7 0 0 0-2 0 1.7 1.7 0 0 1-2.1.4 1.7 1.7 0 0 0-2 .1 1.7 1.7 0 0 0-.6 1.9 1.7 1.7 0 0 1-.7 2 1.7 1.7 0 0 0-.8 1.4 1.7 1.7 0 0 0 .8 1.4 1.7 1.7 0 0 1 .7 2 1.7 1.7 0 0 0 .6 1.9 1.7 1.7 0 0 0 2 .1 1.7 1.7 0 0 1 2.1.4 1.7 1.7 0 0 0 2 0 1.7 1.7 0 0 1 2.1-.4 1.7 1.7 0 0 0 2-.1 1.7 1.7 0 0 0 .6-1.9 1.7 1.7 0 0 1 .7-2Z"></path></svg>
+          </button>
+        </div>
+      </header>
+      <p class="sync-message" id="sync" role="status" aria-live="polite"></p>
+      <section id="view" aria-label="Workspace content"></section>
+    </main>
 
-function dayTasks(k){return Object.values(tasks).filter(function(t){return t.date===k;}).sort(function(a,b){return a.created-b.created;});}
+    <aside class="detail-panel" id="detail-panel" aria-label="Task details" hidden></aside>
+  </div>
 
-function renderDay(){
-  var k=ymd(cur), list=dayTasks(k), h='';
-  h+='<form class="add" id="f"><input name="title" placeholder="What are you working on?" autocomplete="off" required><button class="btn">Add</button></form>';
-  h+='<div class="row2"><input name="tag" form="f" placeholder="Project / tag (optional)"><input name="mins" form="f" type="number" min="0" step="5" inputmode="numeric" placeholder="Minutes"></div>';
-  if(!list.length)h+='<div class="empty">No tasks logged for this day yet.</div>';
-  list.forEach(function(t){
-    h+='<div class="task '+t.status+'" data-id="'+t.id+'"><button class="chk" data-a="tog" aria-label="Toggle done">'+(t.status==='done'?'✓':'')+'</button><div class="body"><div class="ttl">'+esc(t.title)+'</div><div class="meta">'+(t.tag?'<span class="pill">'+esc(t.tag)+'</span>':'')+(t.status==='blocked'?'<span class="pill w">Blocked</span>':'')+(t.mins?hrs(t.mins):'')+'</div></div><button class="x" data-a="blk">'+(t.status==='blocked'?'Unblock':'Block')+'</button><button class="x" data-a="del">✕</button></div>';
-  });
-  var dn=list.filter(function(t){return t.status==='done';}).length;
-  if(list.length)h+='<div class="meta" style="text-align:center">'+dn+' of '+list.length+' done · '+hrs(list.reduce(function(a,t){return a+(t.mins||0);},0))+' logged</div>';
-  return h;
-}
-
-function weekData(){
-  var s=monday(cur), days=[], all=[];
-  for(var i=0;i<7;i++){var d=addDays(s,i),l=dayTasks(ymd(d));days.push({d:d,l:l});all=all.concat(l);}
-  var done=all.filter(function(t){return t.status==='done';}), blk=all.filter(function(t){return t.status==='blocked';}), open=all.filter(function(t){return t.status==='todo';});
-  var mins=all.reduce(function(a,t){return a+(t.mins||0);},0), tags={};
-  all.forEach(function(t){var g=t.tag||'Untagged';tags[g]=tags[g]||{n:0,m:0};tags[g].n++;tags[g].m+=(t.mins||0);});
-  return {s:s,days:days,all:all,done:done,blk:blk,open:open,mins:mins,tags:tags};
-}
-function summaryText(w){
-  var e=addDays(w.s,6), rate=w.all.length?Math.round(w.done.length/w.all.length*100):0;
-  var t='Weekly summary: '+fmt(w.s,{day:'numeric',month:'short'})+' – '+fmt(e,{day:'numeric',month:'short',year:'numeric'})+'\n';
-  t+='Tasks: '+w.all.length+' logged, '+w.done.length+' done ('+rate+'%), '+w.open.length+' open, '+w.blk.length+' blocked\nTime logged: '+hrs(w.mins)+'\n\nBy day:\n';
-  w.days.forEach(function(x){if(x.l.length)t+='• '+fmt(x.d,{weekday:'short'})+': '+x.l.filter(function(a){return a.status==='done';}).length+'/'+x.l.length+' done\n';});
-  t+='\nCompleted:\n'+(w.done.length?w.done.map(function(a){return '• '+a.title+(a.tag?' ['+a.tag+']':'');}).join('\n'):'• None')+'\n';
-  if(w.blk.length)t+='\nBlocked:\n'+w.blk.map(function(a){return '• '+a.title;}).join('\n')+'\n';
-  if(w.open.length)t+='\nCarry over:\n'+w.open.map(function(a){return '• '+a.title;}).join('\n')+'\n';
-  return t;
-}
-function renderWeek(){
-  var w=weekData(), rate=w.all.length?Math.round(w.done.length/w.all.length*100):0, h='';
-  h+='<div class="sum"><div class="stat"><b>'+w.done.length+'/'+w.all.length+'</b><span>Done</span></div><div class="stat"><b>'+rate+'%</b><span>Completion</span></div><div class="stat"><b>'+hrs(w.mins)+'</b><span>Time logged</span></div></div>';
-  var max=Math.max(1,Math.max.apply(null,w.days.map(function(x){return x.l.length;})));
-  h+='<div class="card"><h2>By day</h2>';
-  w.days.forEach(function(x){var dn=x.l.filter(function(a){return a.status==='done';}).length;h+='<div class="bar"><span class="d">'+fmt(x.d,{weekday:'short'})+'</span><div class="tr"><div class="fl" style="width:'+(x.l.length/max*100)+'%;opacity:'+(x.l.length?(0.35+0.65*dn/x.l.length):0)+'"></div></div><span class="n">'+dn+'/'+x.l.length+'</span></div>';});
-  h+='</div>';
-  var tg=Object.keys(w.tags);
-  if(tg.length){h+='<div class="card"><h2>By project</h2>';tg.sort(function(a,b){return w.tags[b].n-w.tags[a].n;}).forEach(function(g){h+='<div class="bar"><span style="flex:1">'+esc(g)+'</span><span class="n" style="width:auto">'+w.tags[g].n+' · '+hrs(w.tags[g].m)+'</span></div>';});h+='</div>';}
-  if(w.open.length||w.blk.length){h+='<div class="card"><h2>Needs attention</h2>';w.blk.forEach(function(a){h+='<div class="bar"><span class="pill w">Blocked</span>'+esc(a.title)+'</div>';});w.open.forEach(function(a){h+='<div class="bar"><span class="pill">Open</span>'+esc(a.title)+'</div>';});h+='</div>';}
-  h+='<div class="card"><h2>Summary to share</h2><pre id="st">'+esc(summaryText(w))+'</pre><button class="btn" id="cp">Copy summary</button></div>';
-  return h;
-}
-
-function render(){
-  var v=document.getElementById('view'), lab=document.getElementById('label');
-  document.getElementById('tDay').className=mode==='day'?'on':'';
-  document.getElementById('tWeek').className=mode==='week'?'on':'';
-  if(mode==='day'){
-    var isT=ymd(cur)===ymd(new Date());
-    lab.innerHTML=(isT?'Today':fmt(cur,{weekday:'long'}))+'<small>'+fmt(cur,{day:'numeric',month:'long',year:'numeric'})+'</small>';
-    var keep=v.querySelector('input[name=title]'), tv=keep?keep.value:'';
-    v.innerHTML=renderDay();
-  }else{
-    var s=monday(cur);
-    lab.innerHTML='Week of '+fmt(s,{day:'numeric',month:'short'})+'<small>'+fmt(s,{day:'numeric',month:'short'})+' – '+fmt(addDays(s,6),{day:'numeric',month:'short',year:'numeric'})+'</small>';
-    v.innerHTML=renderWeek();
-  }
-}
-
-document.getElementById('tDay').onclick=function(){mode='day';render();};
-document.getElementById('tWeek').onclick=function(){mode='week';render();};
-document.getElementById('prev').onclick=function(){cur=addDays(cur,mode==='day'?-1:-7);render();};
-document.getElementById('next').onclick=function(){cur=addDays(cur,mode==='day'?1:7);render();};
-document.getElementById('view').addEventListener('submit',function(e){
-  e.preventDefault();var f=e.target,id='t'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  var title=f.title.value.trim();if(!title)return;
-  var m=document.querySelector('input[name=mins]'),g=document.querySelector('input[name=tag]');
-  save({id:id,date:ymd(cur),title:title,tag:g.value.trim(),mins:+m.value||0,status:'todo',created:Date.now()});
-});
-document.getElementById('view').addEventListener('click',function(e){
-  var b=e.target.closest('button');if(!b)return;
-  if(b.id==='cp'){var txt=document.getElementById('st').textContent;
-    (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(function(){b.textContent='Copied ✓';}).catch(function(){var r=document.createRange();r.selectNodeContents(document.getElementById('st'));var s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent='Selected: copy manually';});return;}
-  var el=b.closest('.task');if(!el)return;var t=tasks[el.dataset.id];if(!t)return;var a=b.dataset.a;
-  if(a==='tog'){t.status=t.status==='done'?'todo':'done';save(t);}
-  else if(a==='blk'){t.status=t.status==='blocked'?'todo':'blocked';save(t);}
-  else if(a==='del'){remove(t.id);}
-});
-
-/* init */
-(async function(){
-  try{tasks=(await window.ttm.load())||{};}catch(e){tasks={};}
-  render();
-  document.getElementById('sync').textContent='Saved on this computer.';
-})();
-})();
-</script>
+  <nav class="bottom-nav" aria-label="Main navigation">
+    <button class="bottom-nav-item" type="button" data-view="today" aria-label="Today">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"></rect><path d="M7.5 3.5v3M16.5 3.5v3M3.5 9.5h17M8 13h3M8 16h6"></path></svg>
+      <span>Today</span>
+    </button>
+    <button class="bottom-nav-item" type="button" data-view="projects" aria-label="Projects">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5h7l2 2h8v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"></path><path d="M3.5 7.5v-2a2 2 0 0 1 2-2h4l2 2"></path></svg>
+      <span>Projects</span>
+    </button>
+    <button class="bottom-nav-item" type="button" data-view="dashboard" aria-label="Stats">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"></rect><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"></rect><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"></rect><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"></rect></svg>
+      <span>Stats</span>
+    </button>
+  </nav>
 </body>
 </html>

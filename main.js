@@ -10,9 +10,9 @@ let db = null;
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 520, height: 820, minWidth: 360, minHeight: 520,
-    title: 'Task Tracking Monitor',
-    backgroundColor: '#f7f6f2',
+    width: 1100, height: 760, minWidth: 560, minHeight: 520,
+    title: 'Keen',
+    backgroundColor: '#F4F6F9',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
