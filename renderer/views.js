@@ -206,12 +206,97 @@ function renderSettings() {
   </section>`;
 }
 
+function projectColor(project) {
+  return /^#[\da-f]{6}$/i.test(project.color || '') ? project.color : '#3B6EA8';
+}
+
+function projectEditor(project) {
+  const isNew = !project;
+  const id = isNew ? '' : escapeHtml(project.id);
+  return `<form class="project-edit-form${isNew ? ' project-create-form' : ''}" ${isNew ? 'id="project-create-form"' : `data-project-form="${id}"`}>
+    <label class="sr-only" for="project-name-${isNew ? 'new' : id}">Project name</label>
+    <input class="text-input" id="project-name-${isNew ? 'new' : id}" name="name" value="${isNew ? '' : escapeHtml(project.name)}" maxlength="120" placeholder="Project name" required>
+    <label class="sr-only" for="project-color-${isNew ? 'new' : id}">Project color</label>
+    <input class="project-color-input" id="project-color-${isNew ? 'new' : id}" name="color" type="color" value="${isNew ? '#3B6EA8' : projectColor(project)}">
+    <button class="button" type="submit">${isNew ? 'Create project' : 'Save'}</button>
+    ${isNew ? '' : '<button class="button button-secondary" type="button" data-action="cancel-project-edit">Cancel</button>'}
+  </form>`;
+}
+
+function projectCard(project) {
+  const id = escapeHtml(project.id);
+  const color = projectColor(project);
+  const archived = Boolean(project.archived);
+  const editing = state.editingProjectId === project.id;
+  return `<article class="project-card${archived ? ' project-card--archived' : ''}" data-project-color="${color}">
+    <button class="project-folder" type="button" data-action="open-project" data-project-id="${id}" aria-label="Open ${escapeHtml(project.name)} project, ${project.tasks} tasks">
+      <span class="folder-art" aria-hidden="true"><span class="folder-tab"></span><span class="folder-face"><span class="folder-monogram">${escapeHtml(project.name.trim().slice(0, 1).toLocaleUpperCase())}</span></span></span>
+      <span class="project-card-heading"><strong>${escapeHtml(project.name)}</strong>${archived ? '<span class="project-archived-label">Archived</span>' : ''}</span>
+      <span class="project-card-stats"><span>${project.tasks} task${project.tasks === 1 ? '' : 's'}</span><span>${formatHours(project.minutes || 0)}</span></span>
+      <span class="project-progress" role="img" aria-label="${project.progress}% progress" data-progress="${Math.min(100, Math.max(0, project.progress))}"><span></span></span>
+      <span class="project-progress-label">${project.progress}% progress · ${project.done} done</span>
+    </button>
+    ${editing ? projectEditor(project) : `<div class="project-card-actions">
+      <button class="text-button" type="button" data-action="edit-project" data-project-id="${id}">Edit</button>
+      <button class="text-button" type="button" data-action="${archived ? 'unarchive-project' : 'archive-project'}" data-project-id="${id}">${archived ? 'Restore' : 'Archive'}</button>
+    </div>`}
+  </article>`;
+}
+
+function projectTaskCard(task, index) {
+  const id = escapeHtml(task.id);
+  const status = ['todo', 'doing', 'done', 'blocked'].includes(task.status) ? task.status : 'todo';
+  const date = formatDate(new Date(`${task.date}T12:00:00`), { weekday: 'short', day: 'numeric', month: 'short' });
+  return `<button class="project-task" type="button" data-task-index="${Math.min(index, 12)}" data-action="open-project-task" data-task-id="${id}" aria-label="Open task details: ${escapeHtml(task.title)}">
+    <span class="project-task-heading"><strong>${escapeHtml(task.title)}</strong><span class="status-chip status-chip--${status}"><span class="status-dot" aria-hidden="true"></span>${status === 'doing' ? 'In progress' : status === 'todo' ? 'To do' : status === 'done' ? 'Done' : 'Blocked'}</span></span>
+    <span class="project-task-meta"><span>${escapeHtml(date)}</span>${task.mins ? `<span>${formatHours(task.mins)}</span>` : ''}</span>
+  </button>`;
+}
+
+function renderProjects() {
+  const selected = state.projectFolders.find((project) => project.id === state.selectedProjectId);
+  const projects = state.projectFolders.filter((project) => state.showArchivedProjects || !project.archived);
+  if (!selected) {
+    const activeCount = state.projectFolders.filter((project) => !project.archived).length;
+    const archivedCount = state.projectFolders.length - activeCount;
+    return `<section class="project-tools panel" aria-label="Create a project">
+      <div><h2 class="panel-title">New project</h2><p class="muted">Group related tasks in a folder.</p></div>
+      ${projectEditor(null)}
+    </section>
+    <div class="project-grid-heading"><div><h2>Project folders</h2><p class="muted">${activeCount} active project${activeCount === 1 ? '' : 's'}</p></div>
+      ${archivedCount ? `<button class="text-button" type="button" data-action="toggle-archived">${state.showArchivedProjects ? 'Hide' : 'Show'} archived (${archivedCount})</button>` : ''}
+    </div>
+    ${projects.length ? `<section class="project-grid" aria-label="Projects">${projects.map(projectCard).join('')}</section>` : `<section class="panel project-empty"><h2>No projects yet</h2><p>Create a project above, or assign a project while adding a task.</p></section>`}`;
+  }
+  const archived = Boolean(selected.archived);
+  const edit = state.editingProjectId === selected.id;
+  const taskCount = state.projectTasks.length;
+  return `<section class="project-stage" data-project-stage data-task-count="${Math.min(taskCount, 13)}">
+    <div class="project-stage-folder">
+      <div class="project-stage-heading">
+        <button class="text-button" type="button" data-action="close-project">← All projects</button>
+        <div class="project-stage-actions">
+          ${edit ? '' : `<button class="text-button" type="button" data-action="edit-project" data-project-id="${escapeHtml(selected.id)}">Edit</button>
+            <button class="text-button" type="button" data-action="${archived ? 'unarchive-project' : 'archive-project'}" data-project-id="${escapeHtml(selected.id)}">${archived ? 'Restore' : 'Archive'}</button>`}
+          <button class="icon-button" type="button" data-action="close-project" aria-label="Close project">×</button>
+        </div>
+      </div>
+      ${edit ? projectEditor(selected) : `<div class="project-folder-hero" data-project-color="${projectColor(selected)}">
+        <span class="folder-art folder-art--large" aria-hidden="true"><span class="folder-tab"></span><span class="folder-face"><span class="folder-monogram">${escapeHtml(selected.name.trim().slice(0, 1).toLocaleUpperCase())}</span></span></span>
+        <div><h2>${escapeHtml(selected.name)}${archived ? ' <span class="project-archived-label">Archived</span>' : ''}</h2><p>${taskCount} task${taskCount === 1 ? '' : 's'} · ${formatHours(selected.minutes || 0)} logged · ${selected.progress}% progress</p></div>
+      </div>`}
+    </div>
+    <section class="project-task-list" aria-label="Tasks in ${escapeHtml(selected.name)}">
+      <h3>${taskCount ? 'Tasks' : 'No tasks in this project yet'}</h3>
+      ${taskCount ? state.projectTasks.map(projectTaskCard).join('') : '<p class="muted">Tasks assigned to this project will appear here.</p>'}
+    </section>
+  </section>`;
+}
+
 function renderComingSoon(view) {
-  const details = view === 'projects'
-    ? ['Projects', 'Project folders and project management will be available in the Projects update.']
-    : ['Your progress, at a glance', 'Activity, trends, and workload insights will appear here in the dashboard update.'];
+  const details = ['Your progress, at a glance', 'Activity, trends, and workload insights will appear here in the dashboard update.'];
   return `<section class="panel coming-soon">
-    <span class="coming-soon-mark" aria-hidden="true">${view === 'projects' ? '▱' : '▦'}</span>
+    <span class="coming-soon-mark" aria-hidden="true">▦</span>
     <h2>${details[0]}</h2><p>${details[1]}</p>
   </section>`;
 }
@@ -225,6 +310,7 @@ export function renderPage() {
   let content = '';
   if (view === 'today') content = renderToday();
   else if (view === 'week') content = renderWeek();
+  else if (view === 'projects') content = renderProjects();
   else if (view === 'settings') content = renderSettings();
   else content = renderComingSoon(view);
 

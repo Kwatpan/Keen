@@ -92,7 +92,8 @@ Windows may show an "Unknown publisher" warning when installing the app because 
 2. Add a task for the current day
 3. Optionally add a project tag and estimated minutes
 4. Choose a status, edit task details, or reorder tasks as work changes
-5. Open the weekly view to review totals, copy a summary, or save it as a text file
+5. Open Projects to organize work into colored folders, review project tasks, and archive or restore projects
+6. Open the weekly view to review totals, copy a summary, or save it as a text file
 
 ## Troubleshooting
 

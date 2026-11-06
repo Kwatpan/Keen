@@ -289,7 +289,31 @@ function createRepo(db) {
     `SELECT p.id, p.name, COUNT(t.id) AS tasks, COALESCE(SUM(t.status = 'done'), 0) AS done,
             COALESCE(ROUND(AVG(t.progress)), 0) AS progress, COALESCE(SUM(t.actual_min), 0) AS minutes
      FROM projects p LEFT JOIN tasks t ON t.project_id = p.id AND t.deleted_at IS NULL
-     WHERE p.archived = 0 GROUP BY p.id ORDER BY p.name`
+     WHERE p.archived = 0 GROUP BY p.id ORDER BY p.name COLLATE NOCASE`
+  );
+  const allProjectProgress = db.prepare(
+     `SELECT p.id, p.name, p.color, p.archived, COUNT(t.id) AS tasks,
+             COALESCE(SUM(t.status = 'done'), 0) AS done,
+             COALESCE(ROUND(AVG(t.progress)), 0) AS progress,
+             COALESCE(SUM(t.actual_min), 0) AS minutes
+      FROM projects p LEFT JOIN tasks t ON t.project_id = p.id AND t.deleted_at IS NULL
+      GROUP BY p.id ORDER BY p.archived, p.name COLLATE NOCASE`
+  );
+  const selectProject = db.prepare('SELECT id, name, color, archived FROM projects WHERE id = ?');
+  const projectTasks = db.prepare(
+     `SELECT t.*, p.name AS project FROM tasks t
+      LEFT JOIN projects p ON p.id = t.project_id
+      WHERE t.project_id = ? AND t.deleted_at IS NULL
+      ORDER BY t.task_date DESC, t.sort_order, t.id`
+  );
+  const insertProject = db.prepare(
+     'INSERT INTO projects (name, color) VALUES (@name, @color)'
+  );
+  const updateProject = db.prepare(
+     `UPDATE projects SET name = @name, color = @color WHERE id = @id`
+  );
+  const setProjectArchived = db.prepare(
+     'UPDATE projects SET archived = ? WHERE id = ?'
   );
 
   return {
@@ -313,6 +337,29 @@ function createRepo(db) {
     copyUnfinishedTasks,
     reorderTasks,
     listProjects: () => projectProgress.all(),
+    listAllProjects: () => allProjectProgress.all(),
+    getProject: (id) => selectProject.get(id),
+    listProjectTasks: (id) => projectTasks.all(id),
+    createProject: ({ name, color }) => {
+      const result = insertProject.run({ name: String(name).trim(), color: color || null });
+      return selectProject.get(result.lastInsertRowid);
+    },
+    updateProject: (id, patch) => {
+      const current = selectProject.get(id);
+      if (!current) throw new Error('Project not found');
+      updateProject.run({
+        id,
+        name: patch.name === undefined ? current.name : String(patch.name).trim(),
+        color: patch.color === undefined ? current.color : patch.color || null,
+      });
+      return selectProject.get(id);
+    },
+    archiveProject: (id, archived) => {
+      const current = selectProject.get(id);
+      if (!current) throw new Error('Project not found');
+      setProjectArchived.run(archived ? 1 : 0, id);
+      return { ...current, archived: archived ? 1 : 0 };
+    },
     weekSummary: (from, to) => weekSummary.all(from, to),
     dailyTotals: (from, to) => dailyTotals.all(from, to),
     monthlyTrend: (from, to) => monthlyTrend.all(from, to),

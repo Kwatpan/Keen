@@ -1,5 +1,5 @@
 import { state, setTheme } from './state.js';
-import { addDays, ymd } from './utils.js';
+import { addDays, escapeHtml, formatDate, formatHours, ymd } from './utils.js';
 import { renderPage } from './views.js';
 
 const pageTitle = document.getElementById('page-title');
@@ -12,6 +12,8 @@ const toastUndo = document.getElementById('toast-undo');
 const commandDialog = document.getElementById('command-dialog');
 const commandInput = document.getElementById('command-input');
 const commandOptions = [...document.querySelectorAll('[data-command-view]')];
+const detailPanel = document.getElementById('detail-panel');
+const shellElement = document.getElementById('shell');
 let toastTimer = 0;
 let draggedTaskId = '';
 
@@ -33,6 +35,33 @@ function render() {
   pageTitle.textContent = page.title;
   pageSubtitle.textContent = page.subtitle;
   viewElement.innerHTML = page.content;
+  viewElement.querySelectorAll('[data-project-color]').forEach((element) => {
+    const color = element.dataset.projectColor;
+    if (/^#[\da-f]{6}$/i.test(color)) element.style.setProperty('--folder-color', color);
+  });
+  viewElement.querySelectorAll('[data-progress]').forEach((element) => {
+    element.firstElementChild.style.width = `${element.dataset.progress}%`;
+  });
+  viewElement.querySelectorAll('[data-task-index]').forEach((element) => {
+    element.style.setProperty('--task-index', element.dataset.taskIndex);
+  });
+  const projectStage = viewElement.querySelector('[data-project-stage]');
+  if (projectStage) projectStage.style.setProperty('--task-count', projectStage.dataset.taskCount);
+  const detailTask = state.projectTasks.find((task) => task.id === state.selectedProjectTaskId);
+  shellElement.classList.toggle('has-detail', Boolean(detailTask));
+  detailPanel.hidden = !detailTask;
+  detailPanel.innerHTML = detailTask ? `<div class="detail-heading"><h2>Task details</h2><button class="icon-button" type="button" data-action="close-task-detail" aria-label="Close task details">×</button></div>
+    <div class="detail-task">
+      <span class="status-chip status-chip--${['todo', 'doing', 'done', 'blocked'].includes(detailTask.status) ? detailTask.status : 'todo'}"><span class="status-dot" aria-hidden="true"></span>${detailTask.status === 'doing' ? 'In progress' : detailTask.status === 'todo' ? 'To do' : detailTask.status === 'done' ? 'Done' : 'Blocked'}</span>
+      <h3>${escapeHtml(detailTask.title)}</h3>
+      <dl>
+        <div><dt>Project</dt><dd>${escapeHtml(detailTask.tag || 'No project')}</dd></div>
+        <div><dt>Date</dt><dd>${escapeHtml(formatDate(new Date(`${detailTask.date}T12:00:00`), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</dd></div>
+        <div><dt>Time logged</dt><dd>${formatHours(detailTask.mins || 0)}</dd></div>
+        ${detailTask.estimateMins ? `<div><dt>Estimate</dt><dd>${formatHours(detailTask.estimateMins)}</dd></div>` : ''}
+      </dl>
+      ${detailTask.notes ? `<section class="detail-notes"><h4>Notes</h4><p>${escapeHtml(detailTask.notes)}</p></section>` : ''}
+    </div>` : '';
   document.querySelectorAll('[data-view]').forEach((button) => {
     const active = button.dataset.view === page.view
       || (button.classList.contains('bottom-nav-item') && page.view === 'week' && button.dataset.view === 'today');
@@ -82,9 +111,100 @@ function applyTaskFilters() {
 }
 
 async function refreshTasks() {
-  const [tasks, projects] = await Promise.all([window.ttm.load(), window.ttm.listProjects()]);
+  const [tasks, projects, folders] = await Promise.all([
+    window.ttm.load(),
+    window.ttm.listProjects(),
+    window.ttm.listProjectFolders(),
+  ]);
   state.tasks = Object.assign(Object.create(null), tasks || {});
   state.projects = [...new Set(projects || [])].sort((a, b) => a.localeCompare(b));
+  state.projectFolders = folders || [];
+}
+
+async function openProject(id) {
+  try {
+    const project = state.projectFolders.find((item) => item.id === id);
+    if (!project) throw new Error('Project not found');
+    state.selectedProjectId = id;
+    state.selectedProjectTaskId = null;
+    state.editingProjectId = null;
+    state.projectTasks = await window.ttm.listProjectTasks(String(id));
+    render();
+    viewElement.querySelector('[data-action="close-project"]')?.focus();
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      document.querySelector('[data-project-stage]')?.classList.add('is-open');
+    }));
+  } catch (error) {
+    state.selectedProjectId = null;
+    console.error('Could not open project:', error);
+    setMessage(error.message || 'Could not open this project.', true);
+  }
+}
+
+async function closeProject() {
+  const stage = document.querySelector('[data-project-stage]');
+  const count = stage?.querySelectorAll('.project-task').length || 0;
+  if (stage && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    stage.classList.add('is-closing');
+    await new Promise((resolve) => window.setTimeout(resolve, 420 + Math.min(Math.max(count - 1, 0), 12) * 90));
+  }
+  const previousProjectId = state.selectedProjectId;
+  state.selectedProjectId = null;
+  state.selectedProjectTaskId = null;
+  state.projectTasks = [];
+  state.editingProjectId = null;
+  render();
+  document.querySelector(`[data-action="open-project"][data-project-id="${CSS.escape(String(previousProjectId))}"]`)?.focus();
+}
+
+function closeProjectTask() {
+  const previousTaskId = state.selectedProjectTaskId;
+  state.selectedProjectTaskId = null;
+  render();
+  document.querySelector(`[data-action="open-project-task"][data-task-id="${CSS.escape(String(previousTaskId))}"]`)?.focus();
+}
+
+async function saveProjectForm(form) {
+  const values = new FormData(form);
+  const project = {
+    name: String(values.get('name') || '').trim(),
+    color: String(values.get('color') || ''),
+  };
+  if (!project.name) {
+    setMessage('Project name is required.', true);
+    form.elements.name.focus();
+    return;
+  }
+  try {
+    if (form.id === 'project-create-form') {
+      await window.ttm.createProject(project);
+    } else {
+      await window.ttm.updateProject(form.dataset.projectForm, project);
+    }
+    await refreshTasks();
+    if (state.selectedProjectId !== null) {
+      state.projectTasks = await window.ttm.listProjectTasks(String(state.selectedProjectId));
+    }
+    state.editingProjectId = null;
+    render();
+    setMessage(form.id === 'project-create-form' ? 'Project created.' : 'Project updated.');
+  } catch (error) {
+    console.error('Could not save project:', error);
+    setMessage(error.message || 'Could not save the project.', true);
+  }
+}
+
+async function setProjectArchived(id, archived) {
+  try {
+    await window.ttm.archiveProject(String(id), archived);
+    await refreshTasks();
+    state.editingProjectId = null;
+    render();
+    setMessage(archived ? 'Project archived. Its tasks are safe.' : 'Project restored.');
+  } catch (error) {
+    console.error('Could not update project archive state:', error);
+    setMessage(error.message || 'Could not update the project.', true);
+  }
 }
 
 async function saveTask(task) {
@@ -229,6 +349,12 @@ async function persistOrder(date, ids) {
 
 function navigate(view) {
   if (!['today', 'week', 'projects', 'dashboard', 'settings'].includes(view)) return;
+  if (view !== 'projects') {
+    state.selectedProjectId = null;
+    state.selectedProjectTaskId = null;
+    state.projectTasks = [];
+    state.editingProjectId = null;
+  }
   state.activeView = view;
   state.editingTaskId = null;
   render();
@@ -287,6 +413,44 @@ document.addEventListener('click', (event) => {
   const actionButton = event.target.closest('[data-action]');
   if (!actionButton) return;
   const action = actionButton.dataset.action;
+  if (action === 'open-project') {
+    void openProject(Number(actionButton.dataset.projectId));
+    return;
+  }
+  if (action === 'close-project') {
+    void closeProject();
+    return;
+  }
+  if (action === 'open-project-task') {
+    state.selectedProjectTaskId = actionButton.dataset.taskId;
+    render();
+    detailPanel.querySelector('[data-action="close-task-detail"]')?.focus();
+    return;
+  }
+  if (action === 'close-task-detail') {
+    closeProjectTask();
+    return;
+  }
+  if (action === 'edit-project') {
+    state.editingProjectId = Number(actionButton.dataset.projectId);
+    render();
+    viewElement.querySelector('[data-project-form] [name="name"]')?.focus();
+    return;
+  }
+  if (action === 'cancel-project-edit') {
+    state.editingProjectId = null;
+    render();
+    return;
+  }
+  if (action === 'archive-project' || action === 'unarchive-project') {
+    void setProjectArchived(Number(actionButton.dataset.projectId), action === 'archive-project');
+    return;
+  }
+  if (action === 'toggle-archived') {
+    state.showArchivedProjects = !state.showArchivedProjects;
+    render();
+    return;
+  }
   if (action === 'copy-summary') {
     void copySummary(actionButton);
     return;
@@ -373,6 +537,11 @@ viewElement.addEventListener('change', (event) => {
 
 viewElement.addEventListener('submit', (event) => {
   const form = event.target;
+  if (form.id === 'project-create-form' || form.matches('[data-project-form]')) {
+    event.preventDefault();
+    void saveProjectForm(form);
+    return;
+  }
   if (form.id === 'task-form') {
     event.preventDefault();
     const values = new FormData(form);
@@ -497,6 +666,19 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (commandDialog.open) return;
+  if (event.key === 'Escape' && state.selectedProjectTaskId) {
+    closeProjectTask();
+    return;
+  }
+  if (event.key === 'Escape' && state.editingProjectId !== null) {
+    state.editingProjectId = null;
+    render();
+    return;
+  }
+  if (event.key === 'Escape' && state.selectedProjectId !== null) {
+    void closeProject();
+    return;
+  }
   if (event.key === 'Escape' && state.editingTaskId) {
     state.editingTaskId = null;
     render();

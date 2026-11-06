@@ -23,10 +23,10 @@ function previousDate(value) {
   return date.toISOString().slice(0, 10);
 }
 
-function numericId(value) {
-  if (typeof value !== 'string' && typeof value !== 'number') throw new Error('Invalid task id');
+function numericId(value, entity = 'task') {
+  if (typeof value !== 'string' && typeof value !== 'number') throw new Error(`Invalid ${entity} id`);
   const id = String(value);
-  if (!/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id))) throw new Error('Invalid task id');
+  if (!/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id))) throw new Error(`Invalid ${entity} id`);
   return Number(id);
 }
 
@@ -43,6 +43,28 @@ function toView(row) {
     recurrence: row.recurrence || '',
     created: Date.parse(row.created_at.replace(' ', 'T') + 'Z'),
   };
+}
+
+function toProjectTask(row) {
+  return {
+    ...toView(row),
+    estimateMins: row.estimate_min,
+    notes: row.notes || '',
+  };
+}
+
+function validateProjectName(value) {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > 120) {
+    throw new Error('Project name must be between 1 and 120 characters');
+  }
+  return value.trim();
+}
+
+function validateProjectColor(value) {
+  if (value != null && value !== '' && (typeof value !== 'string' || !/^#[\da-f]{6}$/i.test(value))) {
+    throw new Error('Project color must be a six-digit hex color');
+  }
+  return value || null;
 }
 
 function validateTask(task) {
@@ -74,6 +96,38 @@ function registerIpc(ipcMain, repo, options = {}) {
   });
 
   ipcMain.handle('tasks:projects', () => repo.listProjects().map((project) => project.name));
+
+  ipcMain.handle('projects:list', () => repo.listAllProjects());
+
+  ipcMain.handle('projects:tasks', (_event, id) => {
+    const projectId = numericId(id, 'project');
+    if (!repo.getProject(projectId)) throw new Error('Project not found');
+    return repo.listProjectTasks(projectId).map(toProjectTask);
+  });
+
+  ipcMain.handle('projects:create', (_event, input) => {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid project');
+    return repo.createProject({
+      name: validateProjectName(input.name),
+      color: validateProjectColor(input.color),
+    });
+  });
+
+  ipcMain.handle('projects:update', (_event, id, patch) => {
+    const projectId = numericId(id, 'project');
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('Invalid project update');
+    const fields = {};
+    if ('name' in patch) fields.name = validateProjectName(patch.name);
+    if ('color' in patch) fields.color = validateProjectColor(patch.color);
+    if (!Object.keys(fields).length) throw new Error('No project changes provided');
+    return repo.updateProject(projectId, fields);
+  });
+
+  ipcMain.handle('projects:archive', (_event, id, archived) => {
+    const projectId = numericId(id, 'project');
+    if (typeof archived !== 'boolean') throw new Error('Invalid project archive state');
+    return repo.archiveProject(projectId, archived);
+  });
 
   ipcMain.handle('tasks:save', (_event, task) => {
     const { mins, id } = validateTask(task);
@@ -139,4 +193,4 @@ function registerIpc(ipcMain, repo, options = {}) {
   });
 }
 
-module.exports = { registerIpc, toView, assertDate, validateTask };
+module.exports = { registerIpc, toView, toProjectTask, assertDate, validateTask };

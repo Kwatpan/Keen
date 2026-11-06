@@ -77,6 +77,35 @@ async function run() {
     assert.deepStrictEqual(repo.monthlyTrend('2026-01-01', '2026-12-31'), [
       { month: '2026-11', tasks: 3, done: 1, minutes: 75 },
     ]);
+    const project = handlers['projects:create'](null, { name: 'Roadmap', color: '#3B6EA8' });
+    assert.deepStrictEqual([project.name, project.color, project.archived], ['Roadmap', '#3B6EA8', 0]);
+    const projectTask = handlers['tasks:save'](null, {
+      id: 'tproject1', date: '2026-11-10', title: 'Project task', tag: 'Roadmap', mins: 30, status: 'doing',
+    });
+    const projectSummary = handlers['projects:list']().find((item) => item.id === project.id);
+    assert.deepStrictEqual(
+      [projectSummary.tasks, projectSummary.done, projectSummary.minutes],
+      [1, 0, 30]
+    );
+    assert.deepStrictEqual(
+      handlers['projects:tasks'](null, String(project.id)).map(({ title, status, mins }) => [title, status, mins]),
+      [['Project task', 'doing', 30]]
+    );
+    const renamedProject = handlers['projects:update'](null, String(project.id), {
+      name: 'Keen Roadmap', color: '#3F8F7B',
+    });
+    assert.deepStrictEqual([renamedProject.name, renamedProject.color], ['Keen Roadmap', '#3F8F7B']);
+    assert.strictEqual(handlers['tasks:load']()[projectTask.id].tag, 'Keen Roadmap');
+    assert.strictEqual(handlers['projects:archive'](null, String(project.id), true).archived, 1);
+    assert.ok(!handlers['tasks:projects']().includes('Keen Roadmap'));
+    assert.strictEqual(handlers['projects:tasks'](null, String(project.id)).length, 1);
+    assert.strictEqual(handlers['projects:archive'](null, String(project.id), false).archived, 0);
+    assert.throws(() => handlers['projects:create'](null, { name: '   ', color: '#fff' }), /Project name/);
+    assert.throws(() => handlers['projects:update'](null, String(project.id), { color: 'red' }), /six-digit hex/);
+    assert.throws(() => handlers['projects:archive'](null, String(project.id), 'yes'), /archive state/);
+    assert.throws(() => handlers['projects:tasks'](null, '999999'), /not found/);
+    assert.throws(() => handlers['projects:update'](null, 'invalid', { name: 'Nope' }), /project id/);
+    assert.strictEqual(handlers['projects:create'](null, { name: 'No color' }).color, null);
 
     const added = handlers['tasks:save'](null, {
       id: 'tnew123', date: '2026-11-04', title: ' New one ', tag: 'Beta', mins: '1h30', status: 'todo',
