@@ -2,6 +2,8 @@
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
+const crypto = require('crypto');
+const parseMinutesInput = require('./time');
 
 // Each entry is one schema version. Append new entries; never edit old ones.
 // PRAGMA user_version tracks how many have been applied.
@@ -44,6 +46,13 @@ const MIGRATIONS = [
   );
   CREATE INDEX idx_time_entries_task ON time_entries(task_id);
   `,
+  `
+  ALTER TABLE tasks ADD COLUMN recurrence TEXT
+    CHECK (recurrence IS NULL OR recurrence IN ('daily', 'weekdays', 'weekly'));
+  ALTER TABLE tasks ADD COLUMN recurrence_id TEXT;
+  CREATE UNIQUE INDEX idx_tasks_recurrence_date
+    ON tasks(recurrence_id, task_date) WHERE recurrence_id IS NOT NULL;
+  `,
 ];
 
 function migrate(db, file) {
@@ -71,17 +80,8 @@ function openDb(dir) {
   return db;
 }
 
-// "90", "45m", "1h", "1.5h", "1h30" -> minutes
 function parseMinutes(input) {
-  if (input == null || input === '') return 0;
-  if (typeof input === 'number') return Math.max(0, Math.round(input));
-  const s = String(input).trim().toLowerCase();
-  let m = s.match(/^(\d+(?:\.\d+)?)\s*h(?:ours?|rs?)?\s*(?:(\d+)\s*m?(?:in)?)?$/);
-  if (m) return Math.round(parseFloat(m[1]) * 60 + (m[2] ? parseInt(m[2], 10) : 0));
-  m = s.match(/^(\d+)\s*m(?:in(?:s|utes)?)?$/);
-  if (m) return parseInt(m[1], 10);
-  if (/^\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s));
-  return 0;
+  return parseMinutesInput(input) ?? 0;
 }
 
 const UPDATABLE = ['title', 'status', 'progress', 'estimate_min', 'actual_min', 'notes', 'task_date', 'sort_order'];
@@ -99,14 +99,73 @@ function createRepo(db) {
      LEFT JOIN projects p ON p.id = t.project_id WHERE t.id = ?`
   );
   const insertTask = db.prepare(
-    `INSERT INTO tasks (title, project_id, task_date, status, progress, estimate_min, actual_min, notes, sort_order, created_at, completed_at)
+    `INSERT INTO tasks (title, project_id, task_date, status, progress, estimate_min, actual_min, notes, sort_order, created_at, completed_at, recurrence, recurrence_id)
      VALUES (@title, @project_id, @task_date, @status, @progress, @estimate_min, @actual_min, @notes,
              (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tasks WHERE task_date = @task_date),
              COALESCE(@created_at, datetime('now')),
-             CASE WHEN @status = 'done' THEN COALESCE(@created_at, datetime('now')) END)`
+             CASE WHEN @status = 'done' THEN COALESCE(@created_at, datetime('now')) END,
+             @recurrence, @recurrence_id)`
   );
 
   const getTask = (id) => selectTask.get(id);
+  const taskInRecurrence = db.prepare(
+    'SELECT 1 FROM tasks WHERE recurrence_id = ? AND task_date = ?'
+  );
+  const updateStatement = (patch, id, before) => {
+    const sets = [];
+    const params = { id };
+    for (const field of UPDATABLE) {
+      if (field in patch) { sets.push(`${field} = @${field}`); params[field] = patch[field]; }
+    }
+    if ('project' in patch) { sets.push('project_id = @project_id'); params.project_id = projectId(patch.project); }
+    if (patch.status) {
+      sets.push(`completed_at = CASE WHEN @status = 'done' THEN COALESCE(completed_at, datetime('now')) ELSE NULL END`);
+      if (patch.status === 'done' && !('progress' in patch)) sets.push('progress = 100');
+      if (patch.status !== 'done' && !('progress' in patch)) sets.push('progress = 0');
+    }
+    if ('recurrence' in patch) {
+      sets.push('recurrence = @recurrence');
+      params.recurrence = patch.recurrence;
+      sets.push('recurrence_id = @recurrence_id');
+      params.recurrence_id = patch.recurrence
+        ? before.recurrence_id || crypto.randomUUID()
+        : null;
+    }
+    if (!sets.length) return null;
+    sets.push(`updated_at = datetime('now')`);
+    return { sql: `UPDATE tasks SET ${sets.join(', ')} WHERE id = @id AND deleted_at IS NULL`, params };
+  };
+
+  function nextOccurrence(task) {
+    const date = new Date(`${task.task_date}T12:00:00`);
+    if (task.recurrence === 'weekly') date.setDate(date.getDate() + 7);
+    else {
+      date.setDate(date.getDate() + 1);
+      if (task.recurrence === 'weekdays') {
+        while (date.getDay() === 0 || date.getDay() === 6) date.setDate(date.getDate() + 1);
+      }
+    }
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
+  function createNextOccurrence(task) {
+    if (!task.recurrence || !task.recurrence_id) return;
+    const date = nextOccurrence(task);
+    if (taskInRecurrence.get(task.recurrence_id, date)) return;
+    insertTask.run({
+      title: task.title,
+      project_id: task.project_id,
+      task_date: date,
+      status: 'todo',
+      progress: 0,
+      estimate_min: task.estimate_min,
+      actual_min: 0,
+      notes: null,
+      created_at: null,
+      recurrence: task.recurrence,
+      recurrence_id: task.recurrence_id,
+    });
+  }
 
   function addTask(input) {
     const title = String(input.title || '').trim();
@@ -122,25 +181,36 @@ function createRepo(db) {
       actual_min: parseMinutes(input.minutes ?? input.actual_min),
       notes: input.notes ?? null,
       created_at: input.created_at ?? null,
+      recurrence: input.recurrence || null,
+      recurrence_id: input.recurrence ? (input.recurrence_id || crypto.randomUUID()) : null,
     });
     return getTask(info.lastInsertRowid);
   }
 
   function updateTask(id, patch) {
-    const sets = [];
-    const params = { id };
-    for (const f of UPDATABLE) {
-      if (f in patch) { sets.push(`${f} = @${f}`); params[f] = patch[f]; }
-    }
-    if ('project' in patch) { sets.push('project_id = @project_id'); params.project_id = projectId(patch.project); }
-    if (patch.status) {
-      sets.push(`completed_at = CASE WHEN @status = 'done' THEN COALESCE(completed_at, datetime('now')) ELSE NULL END`);
-      if (patch.status === 'done' && !('progress' in patch)) { sets.push('progress = 100'); }
-    }
-    if (!sets.length) return getTask(id);
-    sets.push(`updated_at = datetime('now')`);
-    db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = @id`).run(params);
-    return getTask(id);
+    return db.transaction(() => {
+      const before = getTask(id);
+      if (!before || before.deleted_at) throw new Error('Task not found');
+      const update = updateStatement(patch, id, before);
+      if (!update) return before;
+      db.prepare(update.sql).run(update.params);
+      if ('recurrence' in patch && before.recurrence_id) {
+        db.prepare(
+          `UPDATE tasks SET recurrence = @recurrence, recurrence_id = @recurrence_id,
+             updated_at = datetime('now') WHERE recurrence_id = @previous_id AND id != @id`
+        ).run({
+          recurrence: patch.recurrence || null,
+          recurrence_id: patch.recurrence ? before.recurrence_id : null,
+          previous_id: before.recurrence_id,
+          id,
+        });
+      }
+      const after = getTask(id);
+      const becameDone = patch.status === 'done' && before.status !== 'done';
+      const recurrenceAddedToDone = patch.recurrence && before.status === 'done' && !before.recurrence_id;
+      if (becameDone || recurrenceAddedToDone) createNextOccurrence(after);
+      return after;
+    })();
   }
 
   const listTasksByDate = db.prepare(
@@ -155,6 +225,45 @@ function createRepo(db) {
   );
   const softDelete = db.prepare(`UPDATE tasks SET deleted_at = datetime('now') WHERE id = ?`);
   const undelete = db.prepare(`UPDATE tasks SET deleted_at = NULL WHERE id = ?`);
+  const copyUnfinishedRows = db.prepare(
+    `SELECT * FROM tasks WHERE task_date = ? AND deleted_at IS NULL AND status != 'done'
+     ORDER BY sort_order, id`
+  );
+  const insertCopy = db.prepare(
+    `INSERT INTO tasks (title, project_id, task_date, status, progress, estimate_min, actual_min, notes, sort_order)
+     VALUES (@title, @project_id, @task_date, 'todo', 0, @estimate_min, 0, @notes,
+             (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tasks WHERE task_date = @task_date))`
+  );
+  const selectIdsByDate = db.prepare(
+    'SELECT id FROM tasks WHERE task_date = ? AND deleted_at IS NULL ORDER BY sort_order, id'
+  );
+  const setSortOrder = db.prepare(
+    'UPDATE tasks SET sort_order = ?, updated_at = datetime(\'now\') WHERE id = ? AND task_date = ? AND deleted_at IS NULL'
+  );
+
+  function copyUnfinishedTasks(fromDate, toDate) {
+    return db.transaction(() => copyUnfinishedRows.all(fromDate).map((task) => {
+      const result = insertCopy.run({
+        title: task.title,
+        project_id: task.project_id,
+        task_date: toDate,
+        estimate_min: task.estimate_min,
+        notes: task.notes,
+      });
+      return getTask(result.lastInsertRowid);
+    }))();
+  }
+
+  function reorderTasks(date, ids) {
+    return db.transaction(() => {
+      const existing = selectIdsByDate.all(date).map((task) => String(task.id));
+      if (existing.length !== ids.length || existing.some((id) => !ids.includes(id))) {
+        throw new Error('Task order does not match the current day');
+      }
+      ids.forEach((id, index) => setSortOrder.run(index, Number(id), date));
+      return listTasksByDate.all(date);
+    })();
+  }
 
   // Analytics. All take inclusive YYYY-MM-DD bounds.
   const weekSummary = db.prepare(
@@ -189,8 +298,20 @@ function createRepo(db) {
     getTask,
     listTasksByDate: (date) => listTasksByDate.all(date),
     listAllTasks: () => listAllTasks.all(),
-    deleteTask: (id) => { softDelete.run(id); return { id }; },
-    undoDelete: (id) => { undelete.run(id); return getTask(id); },
+    deleteTask: (id) => {
+      const task = getTask(id);
+      if (!task || task.deleted_at) throw new Error('Task not found');
+      softDelete.run(id);
+      return task;
+    },
+    undoDelete: (id) => {
+      const task = getTask(id);
+      if (!task || !task.deleted_at) throw new Error('Deleted task not found');
+      undelete.run(id);
+      return getTask(id);
+    },
+    copyUnfinishedTasks,
+    reorderTasks,
     listProjects: () => projectProgress.all(),
     weekSummary: (from, to) => weekSummary.all(from, to),
     dailyTotals: (from, to) => dailyTotals.all(from, to),

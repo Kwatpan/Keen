@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
 const path = require('path');
 const { openDb, createRepo } = require('./storage/db');
 const { importLegacyJson } = require('./storage/migrate-json');
@@ -33,7 +33,11 @@ function startStorage() {
     // The old file is left untouched if the import fails, so nothing is lost.
     console.error('Legacy import failed:', e);
   }
-  registerIpc(ipcMain, repo);
+  registerIpc(ipcMain, repo, {
+    dialog,
+    documentsPath: app.getPath('documents'),
+    getWindow: () => win && !win.isDestroyed() ? win : null,
+  });
 }
 
 if (!app.requestSingleInstanceLock()) {

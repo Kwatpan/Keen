@@ -15,6 +15,10 @@ export const state = {
   tasks: Object.create(null),
   activeView: 'today',
   currentDate: new Date(),
+  projects: [],
+  filters: { query: '', project: '', status: '' },
+  editingTaskId: null,
+  justAddedTaskId: '',
   theme: storedTheme.theme,
   themeError: storedTheme.error,
 };

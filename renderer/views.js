@@ -12,7 +12,7 @@ const viewTitles = {
 function dayTasks(dateKey) {
   return Object.values(state.tasks)
     .filter((task) => task.date === dateKey)
-    .sort((a, b) => a.created - b.created);
+    .sort((a, b) => (a.sortOrder ?? a.created) - (b.sortOrder ?? b.created) || a.created - b.created);
 }
 
 function dateNavigation(period) {
@@ -31,21 +31,46 @@ function dateNavigation(period) {
   </div>`;
 }
 
-function taskMarkup(task) {
+function taskMarkup(task, index, tasks, filtered) {
   const id = escapeHtml(task.id);
   const status = ['todo', 'doing', 'done', 'blocked'].includes(task.status) ? task.status : 'todo';
   const project = task.tag ? `<span class="project-chip">${escapeHtml(task.tag)}</span>` : '';
   const time = task.mins ? `<span>${formatHours(task.mins)}</span>` : '';
-  const statusLabel = status === 'todo' ? 'To do' : status === 'doing' ? 'In progress' : status === 'done' ? 'Done' : 'Blocked';
-  const blockLabel = status === 'blocked' ? 'Unblock' : 'Block';
-  return `<article class="task-card${status === 'done' ? ' task-card--done' : ''}" data-id="${id}">
-    <button class="task-check" type="button" data-action="toggle" aria-label="${status === 'done' ? 'Reopen' : 'Complete'} ${escapeHtml(task.title)}">${status === 'done' ? '✓' : ''}</button>
-    <div class="task-content">
-      <div class="task-title">${escapeHtml(task.title)}</div>
-      <div class="task-meta">${project}<span class="status-chip status-chip--${status}"><span class="status-dot" aria-hidden="true"></span>${statusLabel}</span>${time}</div>
-    </div>
+  const editing = state.editingTaskId === task.id;
+  const moveDisabled = filtered ? ' disabled title="Clear filters to reorder tasks"' : '';
+  const edit = editing ? `<form class="task-edit-form" data-edit-form="${id}">
+      <label class="sr-only" for="edit-title-${id}">Task title</label>
+      <input class="text-input" id="edit-title-${id}" name="title" data-focus-key="edit-title" value="${escapeHtml(task.title)}" maxlength="500" required>
+      <label class="sr-only" for="edit-project-${id}">Project</label>
+      <input class="text-input" id="edit-project-${id}" name="tag" list="project-suggestions" value="${escapeHtml(task.tag)}" maxlength="120" placeholder="Project">
+      <label class="sr-only" for="edit-mins-${id}">Time</label>
+      <input class="text-input" id="edit-mins-${id}" name="mins" value="${escapeHtml(task.mins ? formatHours(task.mins) : '')}" placeholder="Time, e.g. 1h30">
+      <label class="repeat-label" for="edit-repeat-${id}">Repeat</label>
+      <select class="select-input" id="edit-repeat-${id}" name="recurrence">
+        <option value=""${!task.recurrence ? ' selected' : ''}>Does not repeat</option>
+        <option value="daily"${task.recurrence === 'daily' ? ' selected' : ''}>Every day</option>
+        <option value="weekdays"${task.recurrence === 'weekdays' ? ' selected' : ''}>Weekdays</option>
+        <option value="weekly"${task.recurrence === 'weekly' ? ' selected' : ''}>Every week</option>
+      </select>
+      <div class="edit-actions"><button class="button" type="submit">Save changes</button><button class="button button-secondary" type="button" data-action="cancel-edit">Cancel</button></div>
+    </form>`
+    : `<div class="task-title-row"><span class="task-title">${escapeHtml(task.title)}</span><button class="task-action task-action--edit" type="button" data-action="edit" aria-label="Edit ${escapeHtml(task.title)}">Edit</button></div>
+      <div class="task-meta">${project}${time}${task.recurrence ? '<span class="repeat-indicator" title="Repeats">Repeats</span>' : ''}</div>`;
+  const entering = state.justAddedTaskId === task.id ? ' task-card--entering' : '';
+  return `<article class="task-card${status === 'done' ? ' task-card--done' : ''}${entering}" data-id="${id}" data-title="${escapeHtml(task.title.toLocaleLowerCase())}" data-project="${escapeHtml(task.tag.toLocaleLowerCase())}" data-status="${status}">
+    <button class="drag-handle" type="button" draggable="${!filtered}" aria-label="Drag to reorder ${escapeHtml(task.title)}" title="Drag to reorder">⠿</button>
+    <button class="task-check" type="button" role="checkbox" data-action="toggle" aria-label="${status === 'done' ? 'Reopen' : 'Complete'} ${escapeHtml(task.title)}" aria-checked="${status === 'done'}">${status === 'done' ? '✓' : ''}</button>
+    <div class="task-content">${edit}</div>
     <div class="task-actions">
-      <button class="task-action task-action--block" type="button" data-action="block" aria-label="${blockLabel} ${escapeHtml(task.title)}">${blockLabel}</button>
+      <label class="sr-only" for="status-${id}">Status for ${escapeHtml(task.title)}</label>
+      <select class="task-status" id="status-${id}" data-action="status" aria-label="Status for ${escapeHtml(task.title)}">
+        <option value="todo"${status === 'todo' ? ' selected' : ''}>To do</option>
+        <option value="doing"${status === 'doing' ? ' selected' : ''}>Doing</option>
+        <option value="done"${status === 'done' ? ' selected' : ''}>Done</option>
+        <option value="blocked"${status === 'blocked' ? ' selected' : ''}>Blocked</option>
+      </select>
+      <button class="task-action task-action--move" type="button" data-action="move" data-direction="-1" aria-label="Move ${escapeHtml(task.title)} up" title="Move up"${index === 0 ? ' disabled' : ''}${moveDisabled}>↑</button>
+      <button class="task-action task-action--move" type="button" data-action="move" data-direction="1" aria-label="Move ${escapeHtml(task.title)} down" title="Move down"${index === tasks.length - 1 ? ' disabled' : ''}${moveDisabled}>↓</button>
       <button class="task-action task-action--delete" type="button" data-action="delete" aria-label="Delete ${escapeHtml(task.title)}">×</button>
     </div>
   </article>`;
@@ -56,18 +81,43 @@ function renderToday() {
   const tasks = dayTasks(key);
   const done = tasks.filter((task) => task.status === 'done').length;
   const minutes = tasks.reduce((total, task) => total + (task.mins || 0), 0);
+  const filtered = Boolean(state.filters.query || state.filters.project || state.filters.status);
+  const projectOptions = state.projects.map((project) => `<option value="${escapeHtml(project)}"></option>`).join('');
+  const projectFilters = [...new Set(state.projects)].sort((a, b) => a.localeCompare(b));
+  const visibleTasks = tasks.filter((task) => {
+    const query = state.filters.query.toLocaleLowerCase();
+    return (!query || `${task.title} ${task.tag}`.toLocaleLowerCase().includes(query))
+      && (!state.filters.project || task.tag === state.filters.project)
+      && (!state.filters.status || task.status === state.filters.status);
+  });
   return `${dateNavigation('day')}
     <section class="panel" aria-label="Add a task">
       <form class="entry-form" id="task-form">
-        <input class="text-input task-title-input" name="title" placeholder="What are you working on?" autocomplete="off" maxlength="500" required aria-label="Task title">
-        <input class="text-input" name="tag" placeholder="Project (optional)" autocomplete="off" maxlength="120" aria-label="Project">
-        <input class="text-input" name="mins" type="number" min="0" step="5" inputmode="numeric" placeholder="Minutes" aria-label="Minutes">
+        <input class="text-input task-title-input" name="title" data-focus-key="task-title" placeholder="What are you working on?" autocomplete="off" maxlength="500" required aria-label="Task title">
+        <div class="optional-chips" id="optional-chips" hidden>
+          <input class="text-input" name="tag" list="project-suggestions" placeholder="Project (optional)" autocomplete="off" maxlength="120" aria-label="Project">
+          <input class="text-input" name="mins" placeholder="Time, e.g. 1h30" autocomplete="off" aria-label="Time">
+          <label class="sr-only" for="new-repeat">Recurring task</label>
+          <select class="select-input" id="new-repeat" name="recurrence" aria-label="Recurring task">
+            <option value="">Does not repeat</option><option value="daily">Every day</option><option value="weekdays">Weekdays</option><option value="weekly">Every week</option>
+          </select>
+        </div>
+        <datalist id="project-suggestions">${projectOptions}</datalist>
         <button class="button" type="submit">Add task</button>
       </form>
+      <div class="add-secondary"><button class="text-button" type="button" data-action="copy-yesterday">Copy yesterday’s unfinished tasks</button></div>
     </section>
-    ${tasks.length ? `<div class="task-list">${tasks.map(taskMarkup).join('')}</div>
-      <p class="task-totals">${done} of ${tasks.length} done · ${formatHours(minutes)} logged</p>`
-      : '<div class="empty-state">No tasks logged for this day yet.</div>'}`;
+    <section class="task-filters" aria-label="Filter tasks">
+        <label class="filter-search"><span class="sr-only">Search tasks</span><input class="text-input" id="task-search" data-focus-key="task-search" type="search" value="${escapeHtml(state.filters.query)}" placeholder="Search tasks (/)" autocomplete="off"></label>
+        <label><span class="sr-only">Filter by project</span><select class="select-input" id="project-filter" data-focus-key="project-filter"><option value="">All projects</option>${projectFilters.map((project) => `<option value="${escapeHtml(project)}"${state.filters.project === project ? ' selected' : ''}>${escapeHtml(project)}</option>`).join('')}</select></label>
+        <label><span class="sr-only">Filter by status</span><select class="select-input" id="status-filter" data-focus-key="status-filter">
+          <option value="">All statuses</option><option value="todo"${state.filters.status === 'todo' ? ' selected' : ''}>To do</option><option value="doing"${state.filters.status === 'doing' ? ' selected' : ''}>Doing</option><option value="done"${state.filters.status === 'done' ? ' selected' : ''}>Done</option><option value="blocked"${state.filters.status === 'blocked' ? ' selected' : ''}>Blocked</option>
+        </select></label>
+    </section>
+    <div class="task-list" id="task-list" data-date="${key}">${tasks.map((task, index) => taskMarkup(task, index, tasks, filtered)).join('')}
+      <div class="empty-state" id="filter-empty"${visibleTasks.length ? ' hidden' : ''}>${tasks.length || filtered ? 'No tasks match these filters.' : 'No tasks logged for this day yet. Add one above, or copy yesterday’s unfinished tasks.'}</div>
+    </div>
+    ${tasks.length ? `<p class="task-totals">${done} of ${tasks.length} done · ${formatHours(minutes)} logged</p>` : ''}`;
 }
 
 function weekData() {
@@ -123,7 +173,7 @@ function renderWeek() {
     <section class="panel"><h2 class="panel-title">By day</h2>${dayRows}</section>
     ${projectRows ? `<section class="panel"><h2 class="panel-title">By project</h2>${projectRows}</section>` : ''}
     ${attentionRows ? `<section class="panel"><h2 class="panel-title">Needs attention</h2>${attentionRows}</section>` : ''}
-    <section class="panel"><h2 class="panel-title">Summary to share</h2><pre class="summary-text" id="summary-text">${escapeHtml(summary)}</pre><button class="button" type="button" data-action="copy-summary">Copy summary</button></section>`;
+    <section class="panel"><h2 class="panel-title">Summary to share</h2><pre class="summary-text" id="summary-text">${escapeHtml(summary)}</pre><div class="summary-actions"><button class="button" type="button" data-action="copy-summary">Copy summary</button><button class="button button-secondary" type="button" data-action="save-summary">Save as text file</button></div></section>`;
 }
 
 function summaryText(week) {

@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="styles/base.css">
   <link rel="stylesheet" href="styles/layout.css">
   <link rel="stylesheet" href="styles/components.css">
+  <script src="../storage/time.js"></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
@@ -81,5 +82,26 @@
       <span>Stats</span>
     </button>
   </nav>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+    <span id="toast-message"></span>
+    <button class="toast-undo" id="toast-undo" type="button" hidden>Undo</button>
+    <button class="toast-close" id="toast-close" type="button" aria-label="Dismiss notification">×</button>
+  </div>
+  <dialog class="command-dialog" id="command-dialog" aria-labelledby="command-title">
+    <div class="command-heading">
+      <h2 id="command-title">Go to</h2>
+      <kbd>ESC</kbd>
+    </div>
+    <input class="text-input command-input" id="command-input" type="search" placeholder="Search pages…" autocomplete="off" aria-label="Search pages">
+    <div class="command-list" id="command-list">
+      <button class="command-option" type="button" data-command-view="today"><span>Today</span><kbd>T</kbd></button>
+      <button class="command-option" type="button" data-command-view="week"><span>Week</span></button>
+      <button class="command-option" type="button" data-command-view="projects"><span>Projects</span></button>
+      <button class="command-option" type="button" data-command-view="dashboard"><span>Dashboard</span></button>
+      <button class="command-option" type="button" data-command-view="settings"><span>Settings</span></button>
+    </div>
+    <p class="command-hint">Use ↑ ↓ to navigate · Enter to open</p>
+    <p class="command-empty" id="command-empty" hidden>No pages match that search.</p>
+  </dialog>
 </body>
 </html>
