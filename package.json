@@ -16,7 +16,7 @@
   },
   "build": {
     "appId": "com.kaypee.tasktrackingmonitor",
-    "productName": "Task Tracking Monitor",
+    "productName": "Keen",
     "files": [
       "main.js",
       "preload.js",

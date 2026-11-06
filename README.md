@@ -1,10 +1,10 @@
-# Task Tracking Monitor
+# Keen
 
 A lightweight Windows desktop app for tracking daily work, estimating time spent, and reviewing a weekly summary.
 
 ## Overview
 
-Task Tracking Monitor helps you:
+Keen helps you:
 
 - Add tasks for a specific day
 - Tag tasks by project or category
