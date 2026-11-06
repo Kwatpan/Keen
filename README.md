@@ -9,7 +9,8 @@ Keen helps you:
 - Add tasks for a specific day
 - Tag tasks by project or category
 - Track minutes spent per task
-- Mark tasks as done, blocked, or open
+- Set task status to to do, doing, done, or blocked
+- Search, filter, edit, and reorder daily tasks
 - Review weekly completion and time totals
 - Copy a shareable summary for status updates
 
@@ -18,10 +19,15 @@ The app stores data locally on the machine in the user data directory, so it run
 ## Features
 
 - Daily task log with quick add workflow
-- Task status controls: open, done, blocked
+- Smart task entry with project suggestions and flexible time formats
+- Task status controls, inline editing, and persistent drag-and-drop ordering
+- Delete undo, recurring tasks, and carry-over from yesterday
 - Optional project/tag metadata
 - Time tracking in minutes
-- Weekly overview with completion rate, daily progress, and project totals
+- Weekly overview with completion rate, daily progress, project totals, and task activity history
+- Persistent task history for logging, completion, deletion, and restoration, including existing deleted tasks
+- Copy or save weekly summaries as text files
+- Keyboard shortcuts: `Ctrl+K` for navigation, `/` for search, `T` for today, and arrow keys to change dates
 - Responsive layout with system-aware light and dark themes
 - Local SQLite database for all saved data
 - Desktop installer build for Windows using Electron
@@ -86,8 +92,9 @@ Windows may show an "Unknown publisher" warning when installing the app because 
 1. Start the app with `npm start`
 2. Add a task for the current day
 3. Optionally add a project tag and estimated minutes
-4. Mark items as complete or blocked as progress changes
-5. Open the weekly view to review totals and copy a summary
+4. Choose a status, edit task details, or reorder tasks as work changes
+5. Open Projects to organize work into colored folders, review project tasks, and archive or restore projects
+6. Open the weekly view to review totals, copy a summary, or save it as a text file
 
 ## Troubleshooting
 
