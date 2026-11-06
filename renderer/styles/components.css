@@ -870,7 +870,6 @@ h1 {
 
 .project-tools,
 .project-grid-heading,
-.project-stage-heading,
 .project-stage-actions,
 .project-card-actions,
 .project-card-heading,
@@ -1078,17 +1077,28 @@ h1 {
   --task-count: 0;
 }
 
+.project-stage-toolbar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.project-close-button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
 .project-stage-folder {
   position: relative;
-  z-index: 1;
+  z-index: 0;
   min-height: 180px;
   padding: 0 4px 20px;
   transform-origin: center top;
   transition: transform 420ms ease, filter 420ms ease, opacity 420ms ease;
-}
-
-.project-stage-heading {
-  margin-bottom: 20px;
 }
 
 .project-stage-actions {
@@ -1368,7 +1378,7 @@ h1 {
     grid-column: 1 / -1;
   }
 
-  .project-stage-heading {
+  .project-stage-toolbar {
     align-items: flex-start;
   }
 

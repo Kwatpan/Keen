@@ -272,15 +272,14 @@ function renderProjects() {
   const edit = state.editingProjectId === selected.id;
   const taskCount = state.projectTasks.length;
   return `<section class="project-stage" data-project-stage data-task-count="${Math.min(taskCount, 13)}">
-    <div class="project-stage-folder">
-      <div class="project-stage-heading">
-        <button class="text-button" type="button" data-action="close-project">← All projects</button>
-        <div class="project-stage-actions">
-          ${edit ? '' : `<button class="text-button" type="button" data-action="edit-project" data-project-id="${escapeHtml(selected.id)}">Edit</button>
-            <button class="text-button" type="button" data-action="${archived ? 'unarchive-project' : 'archive-project'}" data-project-id="${escapeHtml(selected.id)}">${archived ? 'Restore' : 'Archive'}</button>`}
-          <button class="icon-button" type="button" data-action="close-project" aria-label="Close project">×</button>
-        </div>
+    <div class="project-stage-toolbar">
+      <button class="button button-secondary project-close-button" type="button" data-action="close-project">← Close project</button>
+      <div class="project-stage-actions">
+        ${edit ? '' : `<button class="text-button" type="button" data-action="edit-project" data-project-id="${escapeHtml(selected.id)}">Edit</button>
+          <button class="text-button" type="button" data-action="${archived ? 'unarchive-project' : 'archive-project'}" data-project-id="${escapeHtml(selected.id)}">${archived ? 'Restore' : 'Archive'}</button>`}
       </div>
+    </div>
+    <div class="project-stage-folder">
       ${edit ? projectEditor(selected) : `<div class="project-folder-hero" data-project-color="${projectColor(selected)}">
         <span class="folder-art folder-art--large" aria-hidden="true"><span class="folder-tab"></span><span class="folder-face"><span class="folder-monogram">${escapeHtml(selected.name.trim().slice(0, 1).toLocaleUpperCase())}</span></span></span>
         <div><h2>${escapeHtml(selected.name)}${archived ? ' <span class="project-archived-label">Archived</span>' : ''}</h2><p>${taskCount} task${taskCount === 1 ? '' : 's'} · ${formatHours(selected.minutes || 0)} logged · ${selected.progress}% progress</p></div>
