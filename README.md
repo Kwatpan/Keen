@@ -1,10 +1,10 @@
-# Task Tracking Monitor
+# Keen
 
 A lightweight Windows desktop app for tracking daily work, estimating time spent, and reviewing a weekly summary.
 
 ## Overview
 
-Task Tracking Monitor helps you:
+Keen helps you:
 
 - Add tasks for a specific day
 - Tag tasks by project or category
@@ -22,6 +22,7 @@ The app stores data locally on the machine in the user data directory, so it run
 - Optional project/tag metadata
 - Time tracking in minutes
 - Weekly overview with completion rate, daily progress, and project totals
+- Responsive layout with system-aware light and dark themes
 - Local SQLite database for all saved data
 - Desktop installer build for Windows using Electron
 
@@ -29,7 +30,9 @@ The app stores data locally on the machine in the user data directory, so it run
 
 - `main.js` — Electron app startup, database setup, and one-time import of the old `tasks.json`
 - `preload.js` — exposes safe renderer-to-main APIs
-- `renderer/index.html` — app UI and logic
+- `renderer/index.html` — accessible app shell and navigation
+- `renderer/styles/` — design tokens, base styles, responsive layout, and components
+- `renderer/app.js`, `state.js`, `views.js`, `utils.js` — renderer behavior and views
 - `storage/` — SQLite schema and migrations (`db.js`), legacy JSON import (`migrate-json.js`), IPC handlers (`ipc.js`)
 - `test/` — storage tests
 - `package.json` — project metadata and build scripts
