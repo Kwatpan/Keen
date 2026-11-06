@@ -23,6 +23,14 @@ function previousDate(value) {
   return date.toISOString().slice(0, 10);
 }
 
+function assertHistoryRange(from, to) {
+  const start = new Date(`${assertDate(from)}T00:00:00.000Z`).getTime();
+  const end = new Date(`${assertDate(to)}T00:00:00.000Z`).getTime();
+  if (end < start || end - start > 6 * 24 * 60 * 60 * 1000) {
+    throw new Error('Task history range must be seven days or fewer');
+  }
+}
+
 function numericId(value, entity = 'task') {
   if (typeof value !== 'string' && typeof value !== 'number') throw new Error(`Invalid ${entity} id`);
   const id = String(value);
@@ -96,6 +104,11 @@ function registerIpc(ipcMain, repo, options = {}) {
   });
 
   ipcMain.handle('tasks:projects', () => repo.listProjects().map((project) => project.name));
+
+  ipcMain.handle('tasks:history', (_event, from, to) => {
+    assertHistoryRange(from, to);
+    return repo.listTaskHistory(from, to);
+  });
 
   ipcMain.handle('projects:list', () => repo.listAllProjects());
 
@@ -193,4 +206,4 @@ function registerIpc(ipcMain, repo, options = {}) {
   });
 }
 
-module.exports = { registerIpc, toView, toProjectTask, assertDate, validateTask };
+module.exports = { registerIpc, toView, toProjectTask, assertDate, assertHistoryRange, validateTask };

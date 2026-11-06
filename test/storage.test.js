@@ -17,19 +17,40 @@ async function run() {
   const repo = createRepo(db);
 
   try {
-    assert.strictEqual(MIGRATIONS.length, 2);
-    assert.strictEqual(db.pragma('user_version', { simple: true }), 2);
+    assert.strictEqual(MIGRATIONS.length, 3);
+    assert.strictEqual(db.pragma('user_version', { simple: true }), 3);
     const oldDb = new Database(path.join(upgradeDir, 'tracker.db'));
     oldDb.exec(MIGRATIONS[0]);
-    oldDb.prepare('INSERT INTO tasks (title, task_date) VALUES (?, ?)').run('Keep this row', '2026-01-02');
+    oldDb.prepare('INSERT INTO tasks (title, task_date, created_at) VALUES (?, ?, ?)').run(
+      'Keep this row', '2026-01-02', '2026-01-02 09:00:00'
+    );
+    oldDb.prepare(
+      `UPDATE tasks SET status = 'done', completed_at = '2026-01-02 10:00:00'
+       WHERE title = 'Keep this row'`
+    ).run();
+    oldDb.prepare(
+      `INSERT INTO tasks (title, task_date, created_at, deleted_at) VALUES (?, ?, ?, ?)`
+    ).run('Keep deleted row', '2026-01-02', '2026-01-02 09:30:00', '2026-01-02 11:00:00');
     oldDb.pragma('user_version = 1');
     oldDb.close();
     const upgradedDb = openDb(upgradeDir);
     try {
       const upgradedRepo = createRepo(upgradedDb);
-      assert.strictEqual(upgradedDb.pragma('user_version', { simple: true }), 2);
+      assert.strictEqual(upgradedDb.pragma('user_version', { simple: true }), 3);
       assert.strictEqual(upgradedRepo.listAllTasks()[0].title, 'Keep this row');
       assert.ok(fs.existsSync(path.join(upgradeDir, 'tracker.db.pre-v1.bak')));
+      assert.deepStrictEqual(
+        upgradedRepo.listTaskHistory('2026-01-02', '2026-01-02')
+          .filter((event) => event.title === 'Keep this row' || event.title === 'Keep deleted row')
+          .map(({ title, type }) => [title, type])
+          .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1])),
+        [
+          ['Keep deleted row', 'deleted'],
+          ['Keep deleted row', 'logged'],
+          ['Keep this row', 'completed'],
+          ['Keep this row', 'logged'],
+        ]
+      );
     } finally {
       upgradedDb.close();
     }
@@ -74,6 +95,18 @@ async function run() {
     assert.strictEqual(importedTasks.filter((task) => task.tag === 'alpha').length, 2);
     assert.strictEqual(first.created, t0);
     assert.deepStrictEqual(handlers['tasks:projects']().map((name) => name.toLowerCase()).sort(), ['alpha']);
+    assert.deepStrictEqual(
+      repo.listTaskHistory('2026-11-02', '2026-11-03')
+        .filter((event) => ['First', 'Second', 'No tag'].includes(event.title))
+        .map(({ title, type }) => [title, type])
+        .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1])),
+      [
+        ['First', 'completed'],
+        ['First', 'logged'],
+        ['No tag', 'logged'],
+        ['Second', 'logged'],
+      ]
+    );
     assert.deepStrictEqual(repo.monthlyTrend('2026-01-01', '2026-12-31'), [
       { month: '2026-11', tasks: 3, done: 1, minutes: 75 },
     ]);
@@ -116,14 +149,27 @@ async function run() {
       ...added, title: 'Edited title', tag: 'Gamma', mins: '45m', status: 'doing',
     });
     assert.deepStrictEqual([edited.title, edited.tag, edited.mins, edited.status], ['Edited title', 'Gamma', 45, 'doing']);
+    const completedAdded = handlers['tasks:save'](null, { ...edited, status: 'done' });
+    assert.strictEqual(completedAdded.status, 'done');
+    assert.deepStrictEqual(
+      repo.listTaskHistory('2000-01-01', '2099-12-31')
+        .filter((event) => event.taskId === added.id)
+        .map((event) => event.type)
+        .sort(),
+      ['completed', 'logged']
+    );
 
     const source = handlers['tasks:save'](null, {
       id: 'tsource9', date: '2026-11-04', title: 'Carry this', tag: 'Gamma', mins: 30, status: 'todo',
     });
     const copied = handlers['tasks:copy-unfinished'](null, '2026-11-05');
-    assert.strictEqual(copied.length, 2);
+    assert.strictEqual(copied.length, 1);
     assert.ok(copied.every((task) => task.date === '2026-11-05' && task.status === 'todo' && task.mins === 0));
     assert.ok(copied.every((task) => !task.recurrence));
+    assert.ok(copied.every((task) =>
+      repo.listTaskHistory('2000-01-01', '2099-12-31')
+        .some((event) => event.taskId === task.id && event.type === 'logged')
+    ));
 
     const order = repo.listTasksByDate('2026-11-04').map((task) => String(task.id));
     const reordered = handlers['tasks:reorder'](null, '2026-11-04', order.slice().reverse());
@@ -141,6 +187,8 @@ async function run() {
     const mondayTask = repo.listTasksByDate('2026-11-09').find((task) => task.title === 'Weekday task');
     assert.ok(mondayTask, 'weekday recurrence skips the weekend');
     assert.deepStrictEqual([mondayTask.status, mondayTask.actual_min, mondayTask.recurrence], ['todo', 0, 'weekdays']);
+    assert.ok(repo.listTaskHistory('2000-01-01', '2099-12-31')
+      .some((event) => event.taskId === String(mondayTask.id) && event.type === 'logged'));
     handlers['tasks:save'](null, { ...completed, status: 'done' });
     assert.strictEqual(repo.listTasksByDate('2026-11-09').filter((task) => task.title === 'Weekday task').length, 1);
     const mondayTaskView = handlers['tasks:load']()[mondayTask.id];
@@ -155,6 +203,17 @@ async function run() {
     const restored = handlers['tasks:undo'](null, added.id);
     assert.deepStrictEqual([restored.id, restored.title], [added.id, 'Edited title']);
     assert.throws(() => handlers['tasks:undo'](null, added.id), /not found/);
+    assert.deepStrictEqual(
+      repo.listTaskHistory('2000-01-01', '2099-12-31')
+        .filter((event) => event.taskId === added.id)
+        .map((event) => event.type)
+        .sort(),
+      ['completed', 'deleted', 'logged', 'restored']
+    );
+    const today = db.prepare(`SELECT date('now', 'localtime') AS day`).get().day;
+    assert.ok(handlers['tasks:history'](null, today, today).some((event) => event.taskId === added.id));
+    assert.throws(() => handlers['tasks:history'](null, 'not-a-date', today), /date/);
+    assert.throws(() => handlers['tasks:history'](null, '2026-01-01', '2026-01-09'), /seven days/);
 
     assert.throws(() => handlers['tasks:save'](null, { id: 'tbad1', date: '2026-02-30', title: 'x' }), /date/);
     assert.throws(() => handlers['tasks:save'](null, { id: 'tbad2', date: '2026-11-04', title: 'x', status: 'invalid' }), /status/);

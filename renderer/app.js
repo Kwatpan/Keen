@@ -1,5 +1,5 @@
 import { state, setTheme } from './state.js';
-import { addDays, escapeHtml, formatDate, formatHours, ymd } from './utils.js';
+import { addDays, escapeHtml, formatDate, formatHours, monday, ymd } from './utils.js';
 import { renderPage } from './views.js';
 
 const pageTitle = document.getElementById('page-title');
@@ -111,14 +111,32 @@ function applyTaskFilters() {
 }
 
 async function refreshTasks() {
-  const [tasks, projects, folders] = await Promise.all([
+  const weekStart = monday(state.currentDate);
+  const weekStartKey = ymd(weekStart);
+  const [tasks, projects, folders, history] = await Promise.all([
     window.ttm.load(),
     window.ttm.listProjects(),
     window.ttm.listProjectFolders(),
+    window.ttm.listTaskHistory(ymd(weekStart), ymd(addDays(weekStart, 6))),
   ]);
   state.tasks = Object.assign(Object.create(null), tasks || {});
   state.projects = [...new Set(projects || [])].sort((a, b) => a.localeCompare(b));
   state.projectFolders = folders || [];
+  if (ymd(monday(state.currentDate)) === weekStartKey) state.weekHistory = history || [];
+}
+
+async function refreshWeekHistory() {
+  const weekStart = monday(state.currentDate);
+  const weekStartKey = ymd(weekStart);
+  try {
+    const history = await window.ttm.listTaskHistory(weekStartKey, ymd(addDays(weekStart, 6)));
+    if (ymd(monday(state.currentDate)) !== weekStartKey) return;
+    state.weekHistory = history;
+    if (state.activeView === 'week') render();
+  } catch (error) {
+    console.error('Could not load weekly task history:', error);
+    setMessage(error.message || 'Could not load weekly task history.', true);
+  }
 }
 
 async function openProject(id) {
@@ -358,6 +376,7 @@ function navigate(view) {
   state.activeView = view;
   state.editingTaskId = null;
   render();
+  if (view === 'week') void refreshWeekHistory();
 }
 
 function updateCommandOptions() {
@@ -398,6 +417,7 @@ document.addEventListener('click', (event) => {
     const step = Number(dateButton.dataset.dateStep) * (state.activeView === 'week' ? 7 : 1);
     state.currentDate = addDays(state.currentDate, step);
     render();
+    if (state.activeView === 'week') void refreshWeekHistory();
     return;
   }
 
@@ -700,6 +720,7 @@ document.addEventListener('keydown', (event) => {
   } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
     state.currentDate = addDays(state.currentDate, (event.key === 'ArrowLeft' ? -1 : 1) * (state.activeView === 'week' ? 7 : 1));
     render();
+    if (state.activeView === 'week') void refreshWeekHistory();
   }
 });
 

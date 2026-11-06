@@ -13,6 +13,7 @@ const storedTheme = readThemePreference();
 
 export const state = {
   tasks: Object.create(null),
+  weekHistory: [],
   activeView: 'today',
   currentDate: new Date(),
   projects: [],

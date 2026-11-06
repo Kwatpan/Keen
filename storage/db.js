@@ -53,6 +53,39 @@ const MIGRATIONS = [
   CREATE UNIQUE INDEX idx_tasks_recurrence_date
     ON tasks(recurrence_id, task_date) WHERE recurrence_id IS NOT NULL;
   `,
+  `
+  CREATE TABLE task_events (
+    id           INTEGER PRIMARY KEY,
+    task_id      INTEGER NOT NULL,
+    event_type   TEXT NOT NULL CHECK (event_type IN ('logged', 'completed', 'deleted', 'restored')),
+    title        TEXT NOT NULL,
+    project      TEXT NOT NULL DEFAULT '',
+    task_date    TEXT NOT NULL,
+    status       TEXT NOT NULL,
+    minutes      INTEGER NOT NULL DEFAULT 0,
+    occurred_at  TEXT NOT NULL,
+    event_date   TEXT NOT NULL
+  );
+  CREATE INDEX idx_task_events_date ON task_events(event_date, occurred_at);
+  CREATE INDEX idx_task_events_task ON task_events(task_id, occurred_at);
+
+  INSERT INTO task_events (task_id, event_type, title, project, task_date, status, minutes, occurred_at, event_date)
+  SELECT t.id, 'logged', t.title, COALESCE(p.name, ''), t.task_date, t.status, t.actual_min,
+         t.created_at, date(t.created_at, 'localtime')
+  FROM tasks t LEFT JOIN projects p ON p.id = t.project_id;
+
+  INSERT INTO task_events (task_id, event_type, title, project, task_date, status, minutes, occurred_at, event_date)
+  SELECT t.id, 'completed', t.title, COALESCE(p.name, ''), t.task_date, 'done', t.actual_min,
+         t.completed_at, date(t.completed_at, 'localtime')
+  FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+  WHERE t.completed_at IS NOT NULL;
+
+  INSERT INTO task_events (task_id, event_type, title, project, task_date, status, minutes, occurred_at, event_date)
+  SELECT t.id, 'deleted', t.title, COALESCE(p.name, ''), t.task_date, t.status, t.actual_min,
+         t.deleted_at, date(t.deleted_at, 'localtime')
+  FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+  WHERE t.deleted_at IS NOT NULL;
+  `,
 ];
 
 function migrate(db, file) {
@@ -108,6 +141,32 @@ function createRepo(db) {
   );
 
   const getTask = (id) => selectTask.get(id);
+  const insertTaskEvent = db.prepare(
+    `INSERT INTO task_events
+       (task_id, event_type, title, project, task_date, status, minutes, occurred_at, event_date)
+     VALUES
+       (@task_id, @event_type, @title, @project, @task_date, @status, @minutes,
+        COALESCE(@occurred_at, datetime('now')), date(COALESCE(@occurred_at, datetime('now')), 'localtime'))`
+  );
+  function recordTaskEvent(task, eventType, occurredAt = null) {
+    insertTaskEvent.run({
+      task_id: task.id,
+      event_type: eventType,
+      title: task.title,
+      project: task.project || '',
+      task_date: task.task_date,
+      status: task.status,
+      minutes: task.actual_min || 0,
+      occurred_at: occurredAt,
+    });
+  }
+  function insertTaskWithHistory(input) {
+    const info = insertTask.run(input);
+    const task = getTask(info.lastInsertRowid);
+    recordTaskEvent(task, 'logged', input.created_at);
+    if (task.status === 'done') recordTaskEvent(task, 'completed', input.created_at);
+    return task;
+  }
   const taskInRecurrence = db.prepare(
     'SELECT 1 FROM tasks WHERE recurrence_id = ? AND task_date = ?'
   );
@@ -152,7 +211,7 @@ function createRepo(db) {
     if (!task.recurrence || !task.recurrence_id) return;
     const date = nextOccurrence(task);
     if (taskInRecurrence.get(task.recurrence_id, date)) return;
-    insertTask.run({
+    insertTaskWithHistory({
       title: task.title,
       project_id: task.project_id,
       task_date: date,
@@ -171,7 +230,7 @@ function createRepo(db) {
     const title = String(input.title || '').trim();
     if (!title) throw new Error('Task title is required');
     const status = input.status || 'todo';
-    const info = insertTask.run({
+    return db.transaction(() => insertTaskWithHistory({
       title,
       project_id: projectId(input.project),
       task_date: input.task_date,
@@ -183,8 +242,7 @@ function createRepo(db) {
       created_at: input.created_at ?? null,
       recurrence: input.recurrence || null,
       recurrence_id: input.recurrence ? (input.recurrence_id || crypto.randomUUID()) : null,
-    });
-    return getTask(info.lastInsertRowid);
+    }))();
   }
 
   function updateTask(id, patch) {
@@ -208,6 +266,7 @@ function createRepo(db) {
       const after = getTask(id);
       const becameDone = patch.status === 'done' && before.status !== 'done';
       const recurrenceAddedToDone = patch.recurrence && before.status === 'done' && !before.recurrence_id;
+      if (becameDone) recordTaskEvent(after, 'completed');
       if (becameDone || recurrenceAddedToDone) createNextOccurrence(after);
       return after;
     })();
@@ -229,28 +288,33 @@ function createRepo(db) {
     `SELECT * FROM tasks WHERE task_date = ? AND deleted_at IS NULL AND status != 'done'
      ORDER BY sort_order, id`
   );
-  const insertCopy = db.prepare(
-    `INSERT INTO tasks (title, project_id, task_date, status, progress, estimate_min, actual_min, notes, sort_order)
-     VALUES (@title, @project_id, @task_date, 'todo', 0, @estimate_min, 0, @notes,
-             (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tasks WHERE task_date = @task_date))`
-  );
   const selectIdsByDate = db.prepare(
     'SELECT id FROM tasks WHERE task_date = ? AND deleted_at IS NULL ORDER BY sort_order, id'
   );
   const setSortOrder = db.prepare(
     'UPDATE tasks SET sort_order = ?, updated_at = datetime(\'now\') WHERE id = ? AND task_date = ? AND deleted_at IS NULL'
   );
+  const taskHistory = db.prepare(
+    `SELECT id, task_id, event_type, title, project, task_date, status, minutes, occurred_at, event_date
+     FROM task_events WHERE event_date BETWEEN ? AND ?
+     ORDER BY occurred_at DESC, id DESC`
+  );
 
   function copyUnfinishedTasks(fromDate, toDate) {
     return db.transaction(() => copyUnfinishedRows.all(fromDate).map((task) => {
-      const result = insertCopy.run({
+      return insertTaskWithHistory({
         title: task.title,
         project_id: task.project_id,
         task_date: toDate,
+        status: 'todo',
+        progress: 0,
         estimate_min: task.estimate_min,
+        actual_min: 0,
         notes: task.notes,
+        created_at: null,
+        recurrence: null,
+        recurrence_id: null,
       });
-      return getTask(result.lastInsertRowid);
     }))();
   }
 
@@ -323,16 +387,23 @@ function createRepo(db) {
     listTasksByDate: (date) => listTasksByDate.all(date),
     listAllTasks: () => listAllTasks.all(),
     deleteTask: (id) => {
-      const task = getTask(id);
-      if (!task || task.deleted_at) throw new Error('Task not found');
-      softDelete.run(id);
-      return task;
+      return db.transaction(() => {
+        const task = getTask(id);
+        if (!task || task.deleted_at) throw new Error('Task not found');
+        softDelete.run(id);
+        recordTaskEvent(task, 'deleted');
+        return task;
+      })();
     },
     undoDelete: (id) => {
-      const task = getTask(id);
-      if (!task || !task.deleted_at) throw new Error('Deleted task not found');
-      undelete.run(id);
-      return getTask(id);
+      return db.transaction(() => {
+        const task = getTask(id);
+        if (!task || !task.deleted_at) throw new Error('Deleted task not found');
+        undelete.run(id);
+        const restored = getTask(id);
+        recordTaskEvent(restored, 'restored');
+        return restored;
+      })();
     },
     copyUnfinishedTasks,
     reorderTasks,
@@ -340,6 +411,18 @@ function createRepo(db) {
     listAllProjects: () => allProjectProgress.all(),
     getProject: (id) => selectProject.get(id),
     listProjectTasks: (id) => projectTasks.all(id),
+    listTaskHistory: (from, to) => taskHistory.all(from, to).map((event) => ({
+      id: String(event.id),
+      taskId: String(event.task_id),
+      type: event.event_type,
+      title: event.title,
+      project: event.project,
+      taskDate: event.task_date,
+      status: event.status,
+      minutes: event.minutes,
+      occurredAt: Date.parse(event.occurred_at.replace(' ', 'T') + 'Z'),
+      date: event.event_date,
+    })),
     createProject: ({ name, color }) => {
       const result = insertProject.run({ name: String(name).trim(), color: color || null });
       return selectProject.get(result.lastInsertRowid);

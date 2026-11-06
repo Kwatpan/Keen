@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('ttm', {
   load: () => ipcRenderer.invoke('tasks:load'),
+  listTaskHistory: (from, to) => ipcRenderer.invoke('tasks:history', from, to),
   listProjects: () => ipcRenderer.invoke('tasks:projects'),
   listProjectFolders: () => ipcRenderer.invoke('projects:list'),
   listProjectTasks: (id) => ipcRenderer.invoke('projects:tasks', id),

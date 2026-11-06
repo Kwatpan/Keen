@@ -124,13 +124,23 @@ function weekData() {
   const start = monday(state.currentDate);
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = addDays(start, index);
-    return { date, tasks: dayTasks(ymd(date)) };
+    const dateKey = ymd(date);
+    return {
+      date,
+      tasks: dayTasks(dateKey),
+      events: state.weekHistory.filter((event) => event.date === dateKey),
+    };
   });
   const tasks = days.flatMap((day) => day.tasks);
   const done = tasks.filter((task) => task.status === 'done');
   const blocked = tasks.filter((task) => task.status === 'blocked');
   const open = tasks.filter((task) => task.status === 'todo' || task.status === 'doing');
   const minutes = tasks.reduce((total, task) => total + (task.mins || 0), 0);
+  const history = state.weekHistory;
+  const historyCounts = history.reduce((counts, event) => {
+    counts[event.type] = (counts[event.type] || 0) + 1;
+    return counts;
+  }, Object.create(null));
   const projects = Object.create(null);
   tasks.forEach((task) => {
     const project = task.tag || 'Untagged';
@@ -138,7 +148,7 @@ function weekData() {
     projects[project].count += 1;
     projects[project].minutes += task.mins || 0;
   });
-  return { start, days, tasks, done, blocked, open, minutes, projects };
+  return { start, days, tasks, done, blocked, open, minutes, projects, history, historyCounts };
 }
 
 function renderWeek() {
@@ -149,11 +159,14 @@ function renderWeek() {
     const completed = day.tasks.filter((task) => task.status === 'done').length;
     const width = Math.round((day.tasks.length / maxTasks) * 100);
     const opacity = day.tasks.length ? (0.35 + (0.65 * completed / day.tasks.length)).toFixed(2) : '0';
+    const activityLabel = day.events.length
+      ? `${day.events.length} histor${day.events.length === 1 ? 'y event' : 'y events'}`
+      : '';
     return `<div class="week-row"><span class="week-day">${formatDate(day.date, { weekday: 'short' })}</span>
-      <svg class="week-track" viewBox="0 0 100 10" preserveAspectRatio="none" role="img" aria-label="${day.tasks.length} tasks, ${completed} done">
+      <svg class="week-track" viewBox="0 0 100 10" preserveAspectRatio="none" role="img" aria-label="${day.tasks.length} scheduled tasks, ${completed} done, ${activityLabel || 'no task history'}">
         <rect class="week-track-bg" x="0" y="0" width="100" height="10" rx="5"></rect>
         <rect class="week-track-fill" x="0" y="0" width="${width}" height="10" rx="5" opacity="${opacity}"></rect>
-      </svg><span class="week-count">${completed}/${day.tasks.length}</span></div>`;
+      </svg><span class="week-count">${completed}/${day.tasks.length}${activityLabel ? `<small>${day.events.length} event${day.events.length === 1 ? '' : 's'}</small>` : ''}</span></div>`;
   }).join('');
   const projectRows = Object.entries(week.projects)
     .sort((a, b) => b[1].count - a[1].count)
@@ -164,12 +177,38 @@ function renderWeek() {
     ...week.open.map((task) => `<div class="attention-row"><span class="status-chip status-chip--${task.status}"><span class="status-dot" aria-hidden="true"></span>${task.status === 'doing' ? 'In progress' : 'To do'}</span>${escapeHtml(task.title)}</div>`),
   ].join('');
   const summary = summaryText(week);
+  const historyRows = week.history.map((event) => {
+    const eventDate = new Date(`${event.date}T12:00:00`);
+    const eventTime = new Date(event.occurredAt);
+    const eventLabels = { logged: 'Logged', completed: 'Completed', deleted: 'Deleted', restored: 'Restored' };
+    const label = eventLabels[event.type] || 'Updated';
+    const meta = [
+      formatDate(eventDate, { weekday: 'short', day: 'numeric', month: 'short' }),
+      eventTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+      event.project,
+    ].filter(Boolean).map(escapeHtml).join(' · ');
+    return `<li class="history-row history-row--${escapeHtml(event.type)}">
+      <span class="history-event-label">${label}</span>
+      <span class="history-event-content"><strong>${escapeHtml(event.title)}</strong><small>${meta}</small></span>
+      ${event.minutes ? `<span class="history-event-time">${formatHours(event.minutes)}</span>` : ''}
+    </li>`;
+  }).join('');
+  const historyDescription = [
+    `${week.historyCounts.logged || 0} logged`,
+    `${week.historyCounts.completed || 0} completed`,
+    `${week.historyCounts.deleted || 0} deleted`,
+    `${week.historyCounts.restored || 0} restored`,
+  ].join(' · ');
   return `${dateNavigation('week')}
     <div class="stats-grid">
-      <div class="stat-card"><strong class="stat-value">${week.done.length}/${week.tasks.length}</strong><span class="stat-label">Done</span></div>
-      <div class="stat-card"><strong class="stat-value">${completion}%</strong><span class="stat-label">Completion</span></div>
-      <div class="stat-card"><strong class="stat-value">${formatHours(week.minutes)}</strong><span class="stat-label">Time logged</span></div>
+      <div class="stat-card"><strong class="stat-value">${week.done.length}/${week.tasks.length}</strong><span class="stat-label">Active tasks done</span></div>
+      <div class="stat-card"><strong class="stat-value">${completion}%</strong><span class="stat-label">Active completion</span></div>
+      <div class="stat-card"><strong class="stat-value">${formatHours(week.minutes)}</strong><span class="stat-label">Active time logged</span></div>
     </div>
+    <section class="panel task-history-panel" aria-label="Task history for this week">
+      <div class="history-heading"><div><h2 class="panel-title">Task history</h2><p class="history-summary">${historyDescription}</p></div></div>
+      ${historyRows ? `<ol class="history-list">${historyRows}</ol>` : '<p class="history-empty">Tasks you log, complete, delete, or restore this week will appear here.</p>'}
+    </section>
     <section class="panel"><h2 class="panel-title">By day</h2>${dayRows}</section>
     ${projectRows ? `<section class="panel"><h2 class="panel-title">By project</h2>${projectRows}</section>` : ''}
     ${attentionRows ? `<section class="panel"><h2 class="panel-title">Needs attention</h2>${attentionRows}</section>` : ''}
@@ -180,13 +219,22 @@ function summaryText(week) {
   const end = addDays(week.start, 6);
   const completion = week.tasks.length ? Math.round((week.done.length / week.tasks.length) * 100) : 0;
   let text = `Weekly summary: ${formatDate(week.start, { day: 'numeric', month: 'short' })} – ${formatDate(end, { day: 'numeric', month: 'short', year: 'numeric' })}\n`;
-  text += `Tasks: ${week.tasks.length} logged, ${week.done.length} done (${completion}%), ${week.open.length} open, ${week.blocked.length} blocked\nTime logged: ${formatHours(week.minutes)}\n\nBy day:\n`;
+  text += `Scheduled tasks: ${week.tasks.length}, ${week.done.length} done (${completion}%), ${week.open.length} open, ${week.blocked.length} blocked\nTime logged: ${formatHours(week.minutes)}\n\nBy day:\n`;
+  text += `Task activity: ${week.historyCounts.logged || 0} logged, ${week.historyCounts.completed || 0} completed, ${week.historyCounts.deleted || 0} deleted, ${week.historyCounts.restored || 0} restored\n\n`;
   week.days.forEach((day) => {
-    if (day.tasks.length) {
-      text += `• ${formatDate(day.date, { weekday: 'short' })}: ${day.tasks.filter((task) => task.status === 'done').length}/${day.tasks.length} done\n`;
+    if (day.tasks.length || day.events.length) {
+      const activity = day.events.length ? `, ${day.events.length} history event${day.events.length === 1 ? '' : 's'}` : '';
+      text += `• ${formatDate(day.date, { weekday: 'short' })}: ${day.tasks.filter((task) => task.status === 'done').length}/${day.tasks.length} done${activity}\n`;
     }
   });
-  text += `\nCompleted:\n${week.done.length ? week.done.map((task) => `• ${task.title}${task.tag ? ` [${task.tag}]` : ''}`).join('\n') : '• None'}\n`;
+  if (week.history.length) {
+    text += `\nTask history:\n`;
+    const eventLabels = { logged: 'Logged', completed: 'Completed', deleted: 'Deleted', restored: 'Restored' };
+    week.history.forEach((event) => {
+      text += `• ${eventLabels[event.type] || 'Updated'}: ${event.title}${event.project ? ` [${event.project}]` : ''} (${formatDate(new Date(`${event.date}T12:00:00`), { weekday: 'short', day: 'numeric', month: 'short' })})\n`;
+    });
+  }
+  text += `\nCurrently completed (not deleted):\n${week.done.length ? week.done.map((task) => `• ${task.title}${task.tag ? ` [${task.tag}]` : ''}`).join('\n') : '• None'}\n`;
   if (week.blocked.length) text += `\nBlocked:\n${week.blocked.map((task) => `• ${task.title}`).join('\n')}\n`;
   if (week.open.length) text += `\nCarry over:\n${week.open.map((task) => `• ${task.title}`).join('\n')}\n`;
   return text;

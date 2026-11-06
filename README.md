@@ -24,7 +24,8 @@ The app stores data locally on the machine in the user data directory, so it run
 - Delete undo, recurring tasks, and carry-over from yesterday
 - Optional project/tag metadata
 - Time tracking in minutes
-- Weekly overview with completion rate, daily progress, and project totals
+- Weekly overview with completion rate, daily progress, project totals, and task activity history
+- Persistent task history for logging, completion, deletion, and restoration, including existing deleted tasks
 - Copy or save weekly summaries as text files
 - Keyboard shortcuts: `Ctrl+K` for navigation, `/` for search, `T` for today, and arrow keys to change dates
 - Responsive layout with system-aware light and dark themes
